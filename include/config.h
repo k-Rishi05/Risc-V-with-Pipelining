@@ -25,7 +25,7 @@ enum class VmTypes {
 };
 
 struct VmConfig {
-  VmTypes vm_type = VmTypes::SINGLE_STAGE;
+  VmTypes vm_type = VmTypes::MULTI_STAGE;
   uint64_t run_step_delay = 300;
   uint64_t memory_size = 0xffffffffffffffff; // 64-bit address space
   uint64_t memory_block_size = 1024; // 1 KB blocks

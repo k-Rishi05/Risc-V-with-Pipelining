@@ -818,6 +818,19 @@ void RVSSVM::Run() {
     std::cout << "VM_PROGRAM_END" << std::endl;
     output_status_ = "VM_PROGRAM_END";
   }
+  // Simple stats similar to pipeline for comparison
+  if (instructions_retired_ > 0) {
+    cpi_ = static_cast<float>(cycle_s_) / static_cast<float>(instructions_retired_);
+    ipc_ = static_cast<float>(instructions_retired_) / static_cast<float>(cycle_s_);
+    std::cout << "VM_STATS cycles=" << cycle_s_
+              << " retired=" << instructions_retired_
+              << " cpi=" << cpi_
+              << " ipc=" << ipc_ << std::endl;
+    // Assume single-cycle has 5x longer clock period vs 5-stage pipeline
+    unsigned int period_units = 5; // relative time unit for single-stage
+    unsigned long long time_units = static_cast<unsigned long long>(cycle_s_) * period_units;
+    std::cout << "VM_TIME time_units=" << time_units << " period_units=" << period_units << std::endl;
+  }
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
 }

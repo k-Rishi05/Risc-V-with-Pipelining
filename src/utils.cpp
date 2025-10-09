@@ -395,7 +395,7 @@ void SetupConfigFile() {
 
   config_file << "[Execution]\n";
   config_file << "run_step_delay=0   ; in ms\n";
-  config_file << "processor_type=single_stage\n";
+  config_file << "processor_type=multi_stage\n";
   config_file << "hazard_detection=false\n";
   config_file << "forwarding=false\n";
   config_file << "branch_prediction=none\n\n";

@@ -15,6 +15,8 @@ using instruction_set::get_instr_encoding;
 
 
 
+// Find which type of instruction it is based on opcode
+// Set control signals accordingly
 
 void RVSSControlUnit::SetControlSignals(uint32_t instruction) {
   uint8_t opcode = instruction & 0b1111111;
@@ -114,6 +116,8 @@ void RVSSControlUnit::SetControlSignals(uint32_t instruction) {
 
     
 }
+
+// ALU control signal generation based on instruction and ALUOp
 
 alu::AluOp RVSSControlUnit::GetAluSignal(uint32_t instruction, bool ALUOp) {
     (void)ALUOp; // Suppress unused variable warning

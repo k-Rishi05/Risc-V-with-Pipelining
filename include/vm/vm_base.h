@@ -36,7 +36,7 @@ enum SyscallCode {
 class VmBase {
 public:
     VmBase() = default;
-    ~VmBase() = default;
+    virtual ~VmBase() = default;
 
     AssembledProgram program_;
     std::atomic<bool> stop_requested_ = false;
@@ -103,6 +103,11 @@ public:
         input_queue_.push(input);
         input_cv_.notify_one();
     }
+
+    // Unified stop control for all VM variants
+    void RequestStop() { stop_requested_ = true; }
+    bool IsStopRequested() const { return stop_requested_; }
+    void ClearStop() { stop_requested_ = false; }
 
 };
 
