@@ -124,18 +124,36 @@ class RV5SVM : public VmBase {
 	// control/decode helper
 	RV5SControlUnit control_;
 
+	// Feature flags (reserved for future use)
+	bool hazard_detection_enabled_{false};
+	bool forwarding_enabled_{false};
+	enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2 };
+	PredictorKind predictor_{PredictorKind::None};
+
+	// Optional: control hazard resolution stage (unused in basic pipeline)
+	enum class BranchResolveStage : uint8_t { EX=0, ID=1 };
+	BranchResolveStage branch_resolve_stage_{BranchResolveStage::EX};
+
 	// pipeline state
 	IFID if_id_{};
 	IDEX id_ex_{};
 	EXMEM ex_mem_{};
 	MEMWB mem_wb_{};
 
-	// stage helpers
-	void stageIF(IFID &next_ifid);
-	void stageID(const IFID &cur_ifid, IDEX &next_idex);
-	void stageEX(const IDEX &cur_idex, EXMEM &next_exmem);
-	void stageMEM(const EXMEM &cur_exmem, MEMWB &next_memwb);
-	void stageWB(const MEMWB &cur_memwb);
+	// simple stats
+	uint64_t stall_cycles_{0};
+	uint64_t load_use_stalls_{0};
+	uint64_t fwd_hits_{0};
+	uint64_t mispredictions_{0};
+
+	// stage helpers (in-place, back-to-front safe)
+	void stageIF();
+	void stageID();
+	void stageEX();
+	void stageMEM();
+	void stageWB();
+
+	// internal helpers (none for basic pipeline)
 
 	bool pipelineEmpty() const;
 };

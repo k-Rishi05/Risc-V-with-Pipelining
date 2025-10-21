@@ -40,8 +40,8 @@ class RegisterFile {
     VECTOR,          ///< Vector register.
     CSR              ///< Control and Status Register (CSR).
   };
-
-  RegisterFile(); ///< Constructor to initialize the register file.
+  
+  RegisterFile();
 
   void Reset();
 

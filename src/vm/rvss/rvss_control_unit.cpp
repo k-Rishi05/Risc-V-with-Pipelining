@@ -118,7 +118,6 @@ void RVSSControlUnit::SetControlSignals(uint32_t instruction) {
 }
 
 // ALU control signal generation based on instruction and ALUOp
-
 alu::AluOp RVSSControlUnit::GetAluSignal(uint32_t instruction, bool ALUOp) {
     (void)ALUOp; // Suppress unused variable warning
     // DONT UNCOMMENT THIS WITHOUT SUPPORTING ALUOP IN CONTROL SIGNAL SETTING
