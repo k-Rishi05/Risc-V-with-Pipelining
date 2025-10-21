@@ -13,6 +13,10 @@
 using instruction_set::Instruction;
 using instruction_set::get_instr_encoding;
 
+static inline bool is_stall_mode() {
+	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_STALL;
+}
+
 RV5SVM::RV5SVM() : VmBase() {
 	DumpRegisters(globals::registers_dump_file_path, registers_);
 	DumpState(globals::vm_state_dump_file_path);
@@ -47,13 +51,26 @@ void RV5SVM::stageIF() {
 		out.instr = memory_controller_.ReadWord(program_counter_);
 		out.pc = program_counter_;
 		out.valid = true;
-		UpdateProgramCounter(4);
+		// If we must stall IF/ID, do not advance PC; else advance sequentially
+		if (!stall_if_id_) {
+			UpdateProgramCounter(4);
+		}
 	}
-	// Commit fetch output into IF/ID every cycle (no control-hazard handling here)
-	if_id_ = out;
+	// Commit IF/ID only if not stalling; otherwise freeze previous IF/ID
+	if (!stall_if_id_) {
+		if_id_ = out;
+	}
 }
 
 void RV5SVM::stageID() {
+	// Stall detection: if enabled and hazard present, freeze IF/ID and inject bubble into ID/EX
+	stall_if_id_ = false;
+	if (is_stall_mode() && hazard_.ShouldStall(if_id_, id_ex_)) {
+		stall_if_id_ = true;
+		id_ex_ = {}; // bubble
+		return;
+	}
+
 	IDEX out{};
 	if (!if_id_.valid) { id_ex_ = out; return; }
 	const uint32_t instr = if_id_.instr;
