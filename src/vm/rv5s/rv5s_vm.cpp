@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "globals.h"
 #include "common/instructions.h"
+#include "config.h"
 
 using instruction_set::Instruction;
 using instruction_set::get_instr_encoding;
@@ -23,8 +24,12 @@ void RV5SVM::Reset() {
 
 	program_counter_ = 0;
 	current_instruction_ = 0;
-	cycle_s_ = 0; instructions_retired_ = 0; stall_cycles_ = 0; branch_mispredictions_ = 0;
-	cpi_ = 0; ipc_ = 0;
+	cycle_s_ = 0; 
+	instructions_retired_ = 0; 
+	stall_cycles_ = 0; 
+	mispredictions_ = 0;
+	cpi_ = 0; 
+	ipc_ = 0;
 
 	control_.Reset();
 	if_id_ = {}; id_ex_ = {}; ex_mem_ = {}; mem_wb_ = {};
@@ -34,21 +39,24 @@ bool RV5SVM::pipelineEmpty() const {
 	return !if_id_.valid && !id_ex_.valid && !ex_mem_.valid && !mem_wb_.valid;
 }
 
-void RV5SVM::stageIF(IFID &next_ifid) {
-	next_ifid = {};
+// Removed applyModeFromConfig: basic pipeline does not read dynamic config flags.
+
+void RV5SVM::stageIF() {
+	IFID out{};
 	if (program_counter_ < program_size_) {
-		next_ifid.instr = memory_controller_.ReadWord(program_counter_);
-		next_ifid.pc = program_counter_;
-		next_ifid.valid = true;
+		out.instr = memory_controller_.ReadWord(program_counter_);
+		out.pc = program_counter_;
+		out.valid = true;
 		UpdateProgramCounter(4);
 	}
+	// Commit fetch output into IF/ID every cycle (no control-hazard handling here)
+	if_id_ = out;
 }
 
-void RV5SVM::stageID(const IFID &cur_ifid, IDEX &next_idex) {
-	next_idex = {};
-	if (!cur_ifid.valid) return;
-
-	const uint32_t instr = cur_ifid.instr;
+void RV5SVM::stageID() {
+	IDEX out{};
+	if (!if_id_.valid) { id_ex_ = out; return; }
+	const uint32_t instr = if_id_.instr;
 	uint8_t opcode = instr & 0x7F;
 	uint8_t funct3 = (instr >> 12) & 0x7;
 	uint8_t rs1 = (instr >> 15) & 0x1F;
@@ -58,54 +66,55 @@ void RV5SVM::stageID(const IFID &cur_ifid, IDEX &next_idex) {
 
 	control_.SetControlSignals(instr);
 
-	next_idex.valid = true;
-	next_idex.instr = instr;
-	next_idex.pc = cur_ifid.pc;
-	next_idex.opcode = opcode;
-	next_idex.funct3 = funct3;
-	next_idex.rs1 = rs1;
-	next_idex.rs2 = rs2;
-	next_idex.rd = rd;
-	next_idex.imm = imm;
-	next_idex.rs1_val = registers_.ReadGpr(rs1);
-	next_idex.rs2_val = registers_.ReadGpr(rs2);
+	out.valid = true;
+	out.instr = instr;
+	out.pc = if_id_.pc;
+	out.opcode = opcode;
+	out.funct3 = funct3;
+	out.rs1 = rs1;
+	out.rs2 = rs2;
+	out.rd = rd;
+	out.imm = imm;
+	out.rs1_val = registers_.ReadGpr(rs1);
+	out.rs2_val = registers_.ReadGpr(rs2);
 
-	next_idex.alu_src = control_.GetAluSrc();
-	next_idex.mem_to_reg = control_.GetMemToReg();
-	next_idex.reg_write = control_.GetRegWrite();
-	next_idex.mem_read = control_.GetMemRead();
-	next_idex.mem_write = control_.GetMemWrite();
-	next_idex.branch = control_.GetBranch();
-	next_idex.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
+	out.alu_src = control_.GetAluSrc();
+	out.mem_to_reg = control_.GetMemToReg();
+	out.reg_write = control_.GetRegWrite();
+	out.mem_read = control_.GetMemRead();
+	out.mem_write = control_.GetMemWrite();
+	out.branch = control_.GetBranch();
+	out.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
+	// Commit
+	id_ex_ = out;
 }
 
-void RV5SVM::stageEX(const IDEX &cur_idex, EXMEM &next_exmem) {
-	next_exmem = {};
-	if (!cur_idex.valid) return;
-
-	uint64_t op1 = cur_idex.rs1_val;
-	uint64_t op2 = cur_idex.alu_src ? static_cast<uint64_t>(cur_idex.imm) : cur_idex.rs2_val;
+void RV5SVM::stageEX() {
+	EXMEM out{};
+	if (!id_ex_.valid) { ex_mem_ = out; return; }
+	uint64_t op1 = id_ex_.rs1_val;
+	uint64_t op2 = id_ex_.alu_src ? static_cast<uint64_t>(id_ex_.imm) : id_ex_.rs2_val;
 
 	// Special cases
 	uint64_t res = 0;
 	bool overflow = false; (void)overflow;
-	switch (cur_idex.opcode) {
+	switch (id_ex_.opcode) {
 		case 0b0110111: // LUI
 			// ImmGenerator returns upper 20 bits (not shifted). LUI writes imm << 12.
-			res = static_cast<uint64_t>(static_cast<int64_t>(cur_idex.imm) << 12);
+			res = static_cast<uint64_t>(static_cast<int64_t>(id_ex_.imm) << 12);
 			break;
 		case 0b0010111: // AUIPC
 			// AUIPC adds (imm << 12) to PC
-			res = static_cast<uint64_t>(static_cast<int64_t>(cur_idex.pc) + (static_cast<int64_t>(cur_idex.imm) << 12));
+			res = static_cast<uint64_t>(static_cast<int64_t>(id_ex_.pc) + (static_cast<int64_t>(id_ex_.imm) << 12));
 			break;
 		case 0b1101111: // JAL
-			res = static_cast<uint64_t>(cur_idex.pc + 4); // return address
+			res = static_cast<uint64_t>(id_ex_.pc + 4); // return address
 			break;
 		case 0b1100111: // JALR
-			res = static_cast<uint64_t>(cur_idex.pc + 4); // return address
+			res = static_cast<uint64_t>(id_ex_.pc + 4); // return address
 			break;
 		default: {
-			auto [r, of] = alu_.execute(cur_idex.alu_signal, op1, op2);
+			auto [r, of] = alu_.execute(id_ex_.alu_signal, op1, op2);
 			res = static_cast<uint64_t>(r);
 			overflow = of;
 			break;
@@ -114,12 +123,12 @@ void RV5SVM::stageEX(const IDEX &cur_idex, EXMEM &next_exmem) {
 
 	// Branch decision (simple, no prediction) for BEQ/BNE/BLT/BGE/...
 		bool take = false;
-		if (cur_idex.opcode == 0b1101111) { // JAL
+		if (id_ex_.opcode == 0b1101111) { // JAL
 			take = true;
-		} else if (cur_idex.opcode == 0b1100111) { // JALR
+		} else if (id_ex_.opcode == 0b1100111) { // JALR
 			take = true;
-		} else if (cur_idex.branch) {
-		switch (cur_idex.funct3) {
+		} else if (id_ex_.branch) {
+		switch (id_ex_.funct3) {
 			case 0b000: take = (res == 0); break; // BEQ: rs1-rs2==0
 			case 0b001: take = (res != 0); break; // BNE
 			case 0b100: take = (res != 0); break; // BLT: kSlt -> res!=0 means rs1<rs2
@@ -129,101 +138,89 @@ void RV5SVM::stageEX(const IDEX &cur_idex, EXMEM &next_exmem) {
 			default: break;
 		}
 	}
-
-	next_exmem.valid = true;
-	next_exmem.instr = cur_idex.instr;
-	next_exmem.pc = cur_idex.pc;
-	next_exmem.opcode = cur_idex.opcode;
-	next_exmem.funct3 = cur_idex.funct3;
-	next_exmem.rd = cur_idex.rd;
-	next_exmem.rs2_val = cur_idex.rs2_val;
-	next_exmem.mem_to_reg = cur_idex.mem_to_reg;
-	next_exmem.reg_write = cur_idex.reg_write;
-	next_exmem.mem_read = cur_idex.mem_read;
-	next_exmem.mem_write = cur_idex.mem_write;
-		next_exmem.alu_result = res;
-		next_exmem.branch_taken = take;
-		if (cur_idex.opcode == 0b1100111) { // JALR
-			uint64_t target = (cur_idex.rs1_val + static_cast<uint64_t>(cur_idex.imm)) & ~static_cast<uint64_t>(1);
-			next_exmem.branch_target = target;
-		} else {
-			next_exmem.branch_target = static_cast<uint64_t>(cur_idex.pc + cur_idex.imm);
-		}
+	out.valid = true;
+	out.instr = id_ex_.instr;
+	out.pc = id_ex_.pc;
+	out.opcode = id_ex_.opcode;
+	out.funct3 = id_ex_.funct3;
+	out.rd = id_ex_.rd;
+	out.rs2_val = id_ex_.rs2_val;
+	out.mem_to_reg = id_ex_.mem_to_reg;
+	out.reg_write = id_ex_.reg_write;
+	out.mem_read = id_ex_.mem_read;
+	out.mem_write = id_ex_.mem_write;
+	out.alu_result = res;
+	out.branch_taken = take;
+	if (id_ex_.opcode == 0b1100111) { // JALR
+		uint64_t target = (id_ex_.rs1_val + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
+		out.branch_target = target;
+	} else {
+		out.branch_target = static_cast<uint64_t>(id_ex_.pc + id_ex_.imm);
+	}
+	// Redirect PC immediately on taken branch/jump; do not flush earlier stages.
+	if (out.branch_taken) {
+		program_counter_ = out.branch_target;
+	}
+	ex_mem_ = out;
 }
 
-void RV5SVM::stageMEM(const EXMEM &cur_exmem, MEMWB &next_memwb) {
-	next_memwb = {};
-	if (!cur_exmem.valid) return;
+void RV5SVM::stageMEM() {
+    MEMWB out{};
+    if (!ex_mem_.valid) { mem_wb_ = out; return; }
 
 	uint64_t mem_data = 0;
-	if (cur_exmem.mem_read) {
-		switch (cur_exmem.funct3) {
-			case 0b000: mem_data = static_cast<int8_t>(memory_controller_.ReadByte(cur_exmem.alu_result)); break; // LB
-			case 0b001: mem_data = static_cast<int16_t>(memory_controller_.ReadHalfWord(cur_exmem.alu_result)); break; // LH
-			case 0b010: mem_data = static_cast<int32_t>(memory_controller_.ReadWord(cur_exmem.alu_result)); break; // LW
-			case 0b011: mem_data = memory_controller_.ReadDoubleWord(cur_exmem.alu_result); break; // LD
-			case 0b100: mem_data = memory_controller_.ReadByte(cur_exmem.alu_result); break; // LBU
-			case 0b101: mem_data = memory_controller_.ReadHalfWord(cur_exmem.alu_result); break; // LHU
-			case 0b110: mem_data = memory_controller_.ReadWord(cur_exmem.alu_result); break; // LWU
+	if (ex_mem_.mem_read) {
+		switch (ex_mem_.funct3) {
+	    case 0b000: mem_data = static_cast<int8_t>(memory_controller_.ReadByte(ex_mem_.alu_result)); break; // LB
+	    case 0b001: mem_data = static_cast<int16_t>(memory_controller_.ReadHalfWord(ex_mem_.alu_result)); break; // LH
+	    case 0b010: mem_data = static_cast<int32_t>(memory_controller_.ReadWord(ex_mem_.alu_result)); break; // LW
+	    case 0b011: mem_data = memory_controller_.ReadDoubleWord(ex_mem_.alu_result); break; // LD
+	    case 0b100: mem_data = memory_controller_.ReadByte(ex_mem_.alu_result); break; // LBU
+	    case 0b101: mem_data = memory_controller_.ReadHalfWord(ex_mem_.alu_result); break; // LHU
+	    case 0b110: mem_data = memory_controller_.ReadWord(ex_mem_.alu_result); break; // LWU
 			default: break;
 		}
 	}
-	if (cur_exmem.mem_write) {
-		switch (cur_exmem.funct3) {
-			case 0b000: memory_controller_.WriteByte(cur_exmem.alu_result, static_cast<uint8_t>(cur_exmem.rs2_val)); break; // SB
-			case 0b001: memory_controller_.WriteHalfWord(cur_exmem.alu_result, static_cast<uint16_t>(cur_exmem.rs2_val)); break; // SH
-			case 0b010: memory_controller_.WriteWord(cur_exmem.alu_result, static_cast<uint32_t>(cur_exmem.rs2_val)); break; // SW
-			case 0b011: memory_controller_.WriteDoubleWord(cur_exmem.alu_result, cur_exmem.rs2_val); break; // SD
+	if (ex_mem_.mem_write) {
+		switch (ex_mem_.funct3) {
+	    case 0b000: memory_controller_.WriteByte(ex_mem_.alu_result, static_cast<uint8_t>(ex_mem_.rs2_val)); break; // SB
+	    case 0b001: memory_controller_.WriteHalfWord(ex_mem_.alu_result, static_cast<uint16_t>(ex_mem_.rs2_val)); break; // SH
+	    case 0b010: memory_controller_.WriteWord(ex_mem_.alu_result, static_cast<uint32_t>(ex_mem_.rs2_val)); break; // SW
+	    case 0b011: memory_controller_.WriteDoubleWord(ex_mem_.alu_result, ex_mem_.rs2_val); break; // SD
 			default: break;
 		}
 	}
 
-	next_memwb.valid = true;
-	next_memwb.instr = cur_exmem.instr;
-	next_memwb.rd = cur_exmem.rd;
-	next_memwb.mem_to_reg = cur_exmem.mem_to_reg;
-	next_memwb.reg_write = cur_exmem.reg_write;
-	next_memwb.alu_result = cur_exmem.alu_result;
-	next_memwb.mem_data = mem_data;
+    out.valid = true;
+    out.instr = ex_mem_.instr;
+    out.rd = ex_mem_.rd;
+    out.mem_to_reg = ex_mem_.mem_to_reg;
+    out.reg_write = ex_mem_.reg_write;
+    out.alu_result = ex_mem_.alu_result;
+    out.mem_data = mem_data;
 
-	// simple control hazard handling: if branch taken, flush IF/ID
-	if (cur_exmem.branch_taken) {
-		program_counter_ = cur_exmem.branch_target;
-		// flush IF stage in the next cycle by not propagating a valid IFID
-		if_id_ = {};
-	}
+	// No control-hazard handling in basic pipeline; branch effects are ignored here.
+	mem_wb_ = out;
 }
 
-void RV5SVM::stageWB(const MEMWB &cur_memwb) {
-	if (!cur_memwb.valid) return;
-	if (cur_memwb.reg_write && cur_memwb.rd != 0) {
-		uint64_t value = cur_memwb.mem_to_reg ? cur_memwb.mem_data : cur_memwb.alu_result;
-		registers_.WriteGpr(cur_memwb.rd, value);
+void RV5SVM::stageWB() {
+	if (!mem_wb_.valid) return;
+	if (mem_wb_.reg_write && mem_wb_.rd != 0) {
+		uint64_t value = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+		registers_.WriteGpr(mem_wb_.rd, value);
 	}
 	// Count any non-bubble WB as a retired instruction
 	instructions_retired_++;
 }
 
 void RV5SVM::Step() {
-	// One cycle: compute next pipeline regs from current, then commit
-	MEMWB n_memwb{}; EXMEM n_exmem{}; IDEX n_idex{}; IFID n_ifid{};
-
-	stageWB(mem_wb_);
-	stageMEM(ex_mem_, n_memwb);
-	stageEX(id_ex_, n_exmem);
-	stageID(if_id_, n_idex);
-	stageIF(n_ifid);
-
-	mem_wb_ = n_memwb;
-	ex_mem_ = n_exmem;
-	id_ex_ = n_idex;
-	// if branch taken in MEM stage, we already flushed IF; otherwise take computed IF
-	if (!if_id_.valid) {
-		if_id_ = n_ifid;
-	} else {
-		// normal advance
-		if_id_ = n_ifid;
-	}
+	// One cycle: propagate from back to front to avoid persistent next-state members
+	// 1) WB uses current MEM/WB
+	stageWB();
+	stageMEM();
+	stageEX();
+	stageID();
+	stageIF();
 
 	cycle_s_++;
 }

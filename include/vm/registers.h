@@ -40,7 +40,7 @@ class RegisterFile {
     VECTOR,          ///< Vector register.
     CSR              ///< Control and Status Register (CSR).
   };
-
+  
   RegisterFile();
 
   void Reset();

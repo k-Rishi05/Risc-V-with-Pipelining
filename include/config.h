@@ -19,13 +19,25 @@
  * @brief Namespace for VM configuration management.
  */
 namespace vm_config {
-enum class VmTypes {
-  SINGLE_STAGE,
-  MULTI_STAGE
+
+// High-level pipeline modes (project deliverables)
+enum class PipelineMode : uint8_t {
+  SINGLE_CYCLE = 1,        // Mode 1
+  PIPE_NO_HAZ = 2,         // Mode 2
+  PIPE_STALL = 3,          // Mode 3
+  PIPE_FWD = 4,            // Mode 4
+  PIPE_STATIC_BP = 5,      // Mode 5
+  PIPE_DYN1_BP = 6         // Mode 6
+};
+
+// Branch resolution stage control (kept simple)
+enum class BranchResolveStage : uint8_t {
+  EX = 0,
+  ID = 1
 };
 
 struct VmConfig {
-  VmTypes vm_type = VmTypes::MULTI_STAGE;
+  PipelineMode pipeline_mode = PipelineMode::PIPE_NO_HAZ; // default to Mode 2 for multi-stage
   uint64_t run_step_delay = 300;
   uint64_t memory_size = 0xffffffffffffffff; // 64-bit address space
   uint64_t memory_block_size = 1024; // 1 KB blocks
@@ -39,13 +51,57 @@ struct VmConfig {
   bool f_extension_enabled = true;
   bool d_extension_enabled = true;
 
-  void setVmType(const VmTypes &type) {
-    vm_type = type;
-  }
+  // Feature flags derived from pipeline_mode; can be overridden via config
+  bool hazard_detection_enabled = false;
+  bool forwarding_enabled = false;
+  enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2 };
+  PredictorKind predictor = PredictorKind::None;
+  BranchResolveStage branch_resolve_stage = BranchResolveStage::EX; // optional tuning
 
-  VmTypes getVmType() const {
-    return vm_type;
+  // VM type removed; selection is based solely on pipeline_mode
+  void setPipelineMode(PipelineMode mode) {
+    pipeline_mode = mode;
+    // Set defaults for feature flags based on mode
+    switch (mode) {
+      case PipelineMode::SINGLE_CYCLE:
+        hazard_detection_enabled = false;
+        forwarding_enabled = false;
+        predictor = PredictorKind::None;
+        branch_resolve_stage = BranchResolveStage::EX;
+        break;
+      case PipelineMode::PIPE_NO_HAZ:
+        hazard_detection_enabled = false;
+        forwarding_enabled = false;
+        predictor = PredictorKind::None;
+        branch_resolve_stage = BranchResolveStage::EX;
+        break;
+      case PipelineMode::PIPE_STALL:
+        hazard_detection_enabled = true;
+        forwarding_enabled = false;
+        predictor = PredictorKind::None;
+        branch_resolve_stage = BranchResolveStage::EX;
+        break;
+      case PipelineMode::PIPE_FWD:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::None;
+        branch_resolve_stage = BranchResolveStage::EX;
+        break;
+      case PipelineMode::PIPE_STATIC_BP:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::Static;
+        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
+        break;
+      case PipelineMode::PIPE_DYN1_BP:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::OneBit;
+        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
+        break;
+    }
   }
+  PipelineMode getPipelineMode() const { return pipeline_mode; }
   void setRunStepDelay(uint64_t delay) {
     run_step_delay = delay;
     std::cout << "Run step delay set to: " << run_step_delay << " ms" << std::endl;
@@ -120,16 +176,50 @@ struct VmConfig {
     return d_extension_enabled;
   }
 
+  void setHazardDetectionEnabled(bool enabled) { hazard_detection_enabled = enabled; }
+  bool getHazardDetectionEnabled() const { return hazard_detection_enabled; }
+
+  void setForwardingEnabled(bool enabled) { forwarding_enabled = enabled; }
+  bool getForwardingEnabled() const { return forwarding_enabled; }
+
+  void setPredictor(PredictorKind kind) { predictor = kind; }
+  PredictorKind getPredictor() const { return predictor; }
+
+  void setBranchResolveStage(BranchResolveStage s) { branch_resolve_stage = s; }
+  BranchResolveStage getBranchResolveStage() const { return branch_resolve_stage; }
+
   void modifyConfig(const std::string &section, const std::string &key, const std::string &value) {
     if (section == "Execution") {
-      if (key == "processor_type") {
-        if (value == "single_stage") {
-          setVmType(VmTypes::SINGLE_STAGE);
-        } else if (value == "multi_stage") {
-          setVmType(VmTypes::MULTI_STAGE);
-        } else {
-          throw std::invalid_argument("Unknown VM type: " + value);
-        }
+      if (key == "pipeline_mode") {
+        if (value == "1" || value == "single_cycle") setPipelineMode(PipelineMode::SINGLE_CYCLE);
+        else if (value == "2" || value == "pipe_no_haz") setPipelineMode(PipelineMode::PIPE_NO_HAZ);
+        else if (value == "3" || value == "pipe_stall") setPipelineMode(PipelineMode::PIPE_STALL);
+        else if (value == "4" || value == "pipe_fwd") setPipelineMode(PipelineMode::PIPE_FWD);
+        else if (value == "5" || value == "pipe_static_bp") setPipelineMode(PipelineMode::PIPE_STATIC_BP);
+        else if (value == "6" || value == "pipe_dyn1_bp") setPipelineMode(PipelineMode::PIPE_DYN1_BP);
+        else throw std::invalid_argument("Unknown pipeline_mode: " + value);
+      } else if (key == "processor_type") {
+        // Deprecated: map to pipeline_mode for backward compatibility
+        if (value == "single_stage") setPipelineMode(PipelineMode::SINGLE_CYCLE);
+        else if (value == "multi_stage") setPipelineMode(PipelineMode::PIPE_NO_HAZ);
+        else throw std::invalid_argument("Unknown processor_type (deprecated): " + value);
+      } else if (key == "hazard_detection_enabled") {
+        if (value == "true") setHazardDetectionEnabled(true);
+        else if (value == "false") setHazardDetectionEnabled(false);
+        else throw std::invalid_argument("Unknown value: " + value);
+      } else if (key == "forwarding_enabled") {
+        if (value == "true") setForwardingEnabled(true);
+        else if (value == "false") setForwardingEnabled(false);
+        else throw std::invalid_argument("Unknown value: " + value);
+      } else if (key == "predictor") {
+        if (value == "none") setPredictor(PredictorKind::None);
+        else if (value == "static") setPredictor(PredictorKind::Static);
+        else if (value == "onebit") setPredictor(PredictorKind::OneBit);
+        else throw std::invalid_argument("Unknown predictor: " + value);
+      } else if (key == "branch_resolve_stage") {
+        if (value == "EX" || value == "ex") setBranchResolveStage(BranchResolveStage::EX);
+        else if (value == "ID" || value == "id") setBranchResolveStage(BranchResolveStage::ID);
+        else throw std::invalid_argument("Unknown branch_resolve_stage: " + value);
       } else if (key == "run_step_delay") {
         setRunStepDelay(std::stoull(value));
       } else if (key == "instruction_execution_limit") {

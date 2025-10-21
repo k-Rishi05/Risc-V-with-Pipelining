@@ -22,6 +22,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  bool start_vm_requested = false;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
 
@@ -34,7 +35,8 @@ int main(int argc, char *argv[]) {
                   << "  --verbose-errors     Enable verbose error printing\n"
                   << "  --start-vm           Start the VM with the default program\n"
                   << "  --start-vm --vm-as-backend  Start the VM with the default program in backend mode\n"
-                  << "  --vm-core <single|multi>  Select VM core type for this run (single-stage or 5-stage pipeline)\n";
+                  << "  --vm-mode <1..6|name>  Set pipeline mode for this run (1=single, 2=nohaz, 3=stall, 4=fwd, 5=static, 6=dyn1)\n"
+                  << "  (VM core is auto-selected from pipeline_mode; you can also use: modify_config Execution pipeline_mode <1..6>)\n";
         return 0;
 
     } else if (arg == "--assemble") {
@@ -59,12 +61,14 @@ int main(int argc, char *argv[]) {
         try {
             AssembledProgram program = assemble(argv[i]);
             std::unique_ptr<VmBase> vm;
-            if (vm_config::config.getVmType() == vm_config::VmTypes::MULTI_STAGE) {
-              vm = std::make_unique<RV5SVM>();
-            } else {
+            auto mode = vm_config::config.getPipelineMode();
+            if (mode == vm_config::PipelineMode::SINGLE_CYCLE) {
               vm = std::make_unique<RVSSVM>();
+              std::cout << "VM_CORE: SINGLE_STAGE\n";
+            } else {
+              vm = std::make_unique<RV5SVM>();
+              std::cout << "VM_MODE: MULTI_STAGE\n";
             }
-            std::cout << "VM_CORE: " << (vm_config::config.getVmType() == vm_config::VmTypes::MULTI_STAGE ? "MULTI_STAGE" : "SINGLE_STAGE") << '\n';
             vm->LoadProgram(program);
             vm->Run();
             std::cout << "Program running: " << program.filename << '\n';
@@ -82,29 +86,36 @@ int main(int argc, char *argv[]) {
         globals::vm_as_backend = true;
         std::cout << "VM backend mode enabled.\n";
   } else if (arg == "--start-vm") {
-        break;
-  } else if (arg == "--vm-core") {
+        // Don't break; keep parsing subsequent args like --vm-mode regardless of order
+        start_vm_requested = true;
+        continue;
+  } else if (arg == "--vm-mode") {
     if (++i >= argc) {
-      std::cerr << "Error: No core specified for --vm-core. Use 'single' or 'multi'.\n";
+      std::cerr << "Error: No mode specified for --vm-mode. Use 1..6 or names (single,nohaz,stall,fwd,static,dyn1).\n";
       return 1;
     }
-    std::string core = argv[i];
-    if (core == "single" || core == "single_stage") {
-      vm_config::config.setVmType(vm_config::VmTypes::SINGLE_STAGE);
-    } else if (core == "multi" || core == "multi_stage") {
-      vm_config::config.setVmType(vm_config::VmTypes::MULTI_STAGE);
-    } else {
-      std::cerr << "Unknown --vm-core value: " << core << ". Use 'single' or 'multi'.\n";
+    std::string m = argv[i];
+    using vm_config::PipelineMode;
+    auto setMode = [&](PipelineMode pm){ vm_config::config.setPipelineMode(pm); };
+    if (m == "1" || m == "single" || m == "single_cycle") setMode(PipelineMode::SINGLE_CYCLE);
+    else if (m == "2" || m == "nohaz" || m == "pipe_no_haz" || m == "no_hazard") setMode(PipelineMode::PIPE_NO_HAZ);
+    else if (m == "3" || m == "stall" || m == "pipe_stall") setMode(PipelineMode::PIPE_STALL);
+    else if (m == "4" || m == "fwd" || m == "forward" || m == "pipe_fwd") setMode(PipelineMode::PIPE_FWD);
+    else if (m == "5" || m == "static" || m == "static_bp" || m == "pipe_static_bp") setMode(PipelineMode::PIPE_STATIC_BP);
+    else if (m == "6" || m == "dyn1" || m == "onebit" || m == "pipe_dyn1_bp" || m == "dynamic_1bit") setMode(PipelineMode::PIPE_DYN1_BP);
+    else {
+      std::cerr << "Unknown --vm-mode value: " << m << ". Use 1..6 or names (single,nohaz,stall,fwd,static,dyn1).\n";
       return 1;
     }
-
+    std::cout << "VM_MODE_SET " << m << "\n";
+    continue;
     } else {
         std::cerr << "Unknown option: " << arg << '\n';
         return 1;
     }
   }
   
-
+  
 
   setupVmStateDirectory();
 
@@ -113,12 +124,16 @@ int main(int argc, char *argv[]) {
   AssembledProgram program;
   bool program_loaded = false;
   std::unique_ptr<VmBase> vm;
-  if (vm_config::config.getVmType() == vm_config::VmTypes::MULTI_STAGE) {
-    vm = std::make_unique<RV5SVM>();
-  } else {
-    vm = std::make_unique<RVSSVM>();
+  {
+    auto mode = vm_config::config.getPipelineMode();
+    if (mode == vm_config::PipelineMode::SINGLE_CYCLE) {
+      vm = std::make_unique<RVSSVM>();
+      std::cout << "VM_CORE: SINGLE_STAGE" << std::endl;
+    } else {
+      vm = std::make_unique<RV5SVM>();
+      std::cout << "VM_CORE: MULTI_STAGE" << std::endl;
+    }
   }
-  std::cout << "VM_CORE: " << (vm_config::config.getVmType() == vm_config::VmTypes::MULTI_STAGE ? "MULTI_STAGE" : "SINGLE_STAGE") << std::endl;
   // try {
   //   program = assemble("/home/vis/Desk/codes/assembler/examples/ntest1.s");
   // } catch (const std::runtime_error &e) {
@@ -161,6 +176,32 @@ int main(int argc, char *argv[]) {
     });
   };
 
+  auto ensureVmMatchesMode = [&]() {
+    using vm_config::PipelineMode;
+    auto desired = vm_config::config.getPipelineMode();
+    bool needSingle = (desired == PipelineMode::SINGLE_CYCLE);
+    bool isSingle = (dynamic_cast<RVSSVM*>(vm.get()) != nullptr);
+    if ((needSingle && !isSingle) || (!needSingle && isSingle)) {
+      // Stop any running VM
+      if (vm_thread.joinable()) {
+        vm->RequestStop();
+        vm_thread.join();
+        vm_running = false;
+      }
+      // Recreate VM of correct kind
+      if (needSingle) {
+        vm = std::make_unique<RVSSVM>();
+        std::cout << "VM_CORE: SINGLE_STAGE" << std::endl;
+      } else {
+        vm = std::make_unique<RV5SVM>();
+        std::cout << "VM_CORE: MULTI_STAGE" << std::endl;
+      }
+      if (program_loaded) {
+        vm->LoadProgram(program);
+      }
+    }
+  };
+
   std::string command_buffer;
   while (true) {
     // std::cout << "=> ";
@@ -185,6 +226,13 @@ int main(int argc, char *argv[]) {
         std::cout << "VM_MODIFY_CONFIG_ERROR" << std::endl;
         std::cerr << e.what() << '\n';
         continue;
+      }
+      // If pipeline_mode changed, align VM type for next execution
+      if (command.args[0] == "Execution" && command.args[1] == "pipeline_mode") {
+        // Only recreate immediately if not running; otherwise will switch on next RUN/STEP
+        if (!vm_running) {
+          ensureVmMatchesMode();
+        }
       }
       continue;
     }
@@ -211,9 +259,11 @@ int main(int argc, char *argv[]) {
       std::cout << "Program loaded: " << command.args[0] << std::endl;
     } else if (command.type==command_handler::CommandType::RUN) {
       if (vm_running) continue;
+  ensureVmMatchesMode();
       launch_vm_thread([&]() { vm->Run(); });
     } else if (command.type==command_handler::CommandType::DEBUG_RUN) {
       if (vm_running) continue;
+  ensureVmMatchesMode();
       launch_vm_thread([&]() { vm->DebugRun(); });
     } else if (command.type==command_handler::CommandType::STOP) {
       vm->RequestStop();
@@ -226,6 +276,7 @@ int main(int argc, char *argv[]) {
   vm->DumpState(globals::vm_state_dump_file_path);
     } else if (command.type==command_handler::CommandType::STEP) {
       if (vm_running) continue;
+  ensureVmMatchesMode();
   launch_vm_thread([&]() { vm->Step(); });
 
     } else if (command.type==command_handler::CommandType::UNDO) {
