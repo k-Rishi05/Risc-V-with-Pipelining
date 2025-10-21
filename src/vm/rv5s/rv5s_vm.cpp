@@ -152,59 +152,96 @@ void RV5SVM::stageEX(const IDEX &cur_idex, EXMEM &next_exmem) {
 }
 
 void RV5SVM::stageMEM(const EXMEM &cur_exmem, MEMWB &next_memwb) {
-	next_memwb = {};
-	if (!cur_exmem.valid) return;
+    next_memwb = {};
+    if (!cur_exmem.valid) return;
 
-	uint64_t mem_data = 0;
-	if (cur_exmem.mem_read) {
-		switch (cur_exmem.funct3) {
-			case 0b000: mem_data = static_cast<int8_t>(memory_controller_.ReadByte(cur_exmem.alu_result)); break; // LB
-			case 0b001: mem_data = static_cast<int16_t>(memory_controller_.ReadHalfWord(cur_exmem.alu_result)); break; // LH
-			case 0b010: mem_data = static_cast<int32_t>(memory_controller_.ReadWord(cur_exmem.alu_result)); break; // LW
-			case 0b011: mem_data = memory_controller_.ReadDoubleWord(cur_exmem.alu_result); break; // LD
-			case 0b100: mem_data = memory_controller_.ReadByte(cur_exmem.alu_result); break; // LBU
-			case 0b101: mem_data = memory_controller_.ReadHalfWord(cur_exmem.alu_result); break; // LHU
-			case 0b110: mem_data = memory_controller_.ReadWord(cur_exmem.alu_result); break; // LWU
-			default: break;
-		}
-	}
-	if (cur_exmem.mem_write) {
-		switch (cur_exmem.funct3) {
-			case 0b000: memory_controller_.WriteByte(cur_exmem.alu_result, static_cast<uint8_t>(cur_exmem.rs2_val)); break; // SB
-			case 0b001: memory_controller_.WriteHalfWord(cur_exmem.alu_result, static_cast<uint16_t>(cur_exmem.rs2_val)); break; // SH
-			case 0b010: memory_controller_.WriteWord(cur_exmem.alu_result, static_cast<uint32_t>(cur_exmem.rs2_val)); break; // SW
-			case 0b011: memory_controller_.WriteDoubleWord(cur_exmem.alu_result, cur_exmem.rs2_val); break; // SD
-			default: break;
-		}
-	}
+    uint64_t mem_data = 0;
+    if (cur_exmem.mem_read) {
+        switch (cur_exmem.funct3) {
+            case 0b000: mem_data = static_cast<int8_t>(memory_controller_.ReadByte(cur_exmem.alu_result)); break; // LB
+            case 0b001: mem_data = static_cast<int16_t>(memory_controller_.ReadHalfWord(cur_exmem.alu_result)); break; // LH
+            case 0b010: mem_data = static_cast<int32_t>(memory_controller_.ReadWord(cur_exmem.alu_result)); break; // LW
+            case 0b011: mem_data = memory_controller_.ReadDoubleWord(cur_exmem.alu_result); break; // LD
+            case 0b100: mem_data = memory_controller_.ReadByte(cur_exmem.alu_result); break; // LBU
+            case 0b101: mem_data = memory_controller_.ReadHalfWord(cur_exmem.alu_result); break; // LHU
+            case 0b110: mem_data = memory_controller_.ReadWord(cur_exmem.alu_result); break; // LWU
+            default: break;
+        }
+    }
 
-	next_memwb.valid = true;
-	next_memwb.instr = cur_exmem.instr;
-	next_memwb.rd = cur_exmem.rd;
-	next_memwb.mem_to_reg = cur_exmem.mem_to_reg;
-	next_memwb.reg_write = cur_exmem.reg_write;
-	next_memwb.alu_result = cur_exmem.alu_result;
-	next_memwb.mem_data = mem_data;
+    if (cur_exmem.mem_write) {
+        std::vector<uint8_t> old_bytes, new_bytes;
+        size_t size = 0;
+        switch (cur_exmem.funct3) {
+            case 0b000: size = 1; break; // SB
+            case 0b001: size = 2; break; // SH
+            case 0b010: size = 4; break; // SW
+            case 0b011: size = 8; break; // SD
+            default: break;
+        }
+        // Record old bytes before write
+        for (size_t i = 0; i < size; ++i)
+            old_bytes.push_back(memory_controller_.ReadByte(cur_exmem.alu_result + i));
+        // Perform the write
+        switch (cur_exmem.funct3) {
+            case 0b000: memory_controller_.WriteByte(cur_exmem.alu_result, static_cast<uint8_t>(cur_exmem.rs2_val)); break; // SB
+            case 0b001: memory_controller_.WriteHalfWord(cur_exmem.alu_result, static_cast<uint16_t>(cur_exmem.rs2_val)); break; // SH
+            case 0b010: memory_controller_.WriteWord(cur_exmem.alu_result, static_cast<uint32_t>(cur_exmem.rs2_val)); break; // SW
+            case 0b011: memory_controller_.WriteDoubleWord(cur_exmem.alu_result, cur_exmem.rs2_val); break; // SD
+            default: break;
+        }
+        // Record new bytes after write
+        for (size_t i = 0; i < size; ++i)
+            new_bytes.push_back(memory_controller_.ReadByte(cur_exmem.alu_result + i));
+        // Log the change for undo/redo
+        if (size > 0 && old_bytes != new_bytes) {
+            current_delta_.memory_changes.push_back({cur_exmem.alu_result, old_bytes, new_bytes});
+        }
+    }
 
-	// simple control hazard handling: if branch taken, flush IF/ID
-	if (cur_exmem.branch_taken) {
-		program_counter_ = cur_exmem.branch_target;
-		// flush IF stage in the next cycle by not propagating a valid IFID
-		if_id_ = {};
-	}
+    next_memwb.valid = true;
+    next_memwb.instr = cur_exmem.instr;
+    next_memwb.rd = cur_exmem.rd;
+    next_memwb.mem_to_reg = cur_exmem.mem_to_reg;
+    next_memwb.reg_write = cur_exmem.reg_write;
+    next_memwb.alu_result = cur_exmem.alu_result;
+    next_memwb.mem_data = mem_data;
+
+    // simple control hazard handling: if branch taken, flush IF/ID
+    if (cur_exmem.branch_taken) {
+        program_counter_ = cur_exmem.branch_target;
+        // flush IF stage in the next cycle by not propagating a valid IFID
+        if_id_ = {};
+    }
 }
 
 void RV5SVM::stageWB(const MEMWB &cur_memwb) {
 	if (!cur_memwb.valid) return;
 	if (cur_memwb.reg_write && cur_memwb.rd != 0) {
+		uint64_t old_val = registers_.ReadGpr(cur_memwb.rd);
 		uint64_t value = cur_memwb.mem_to_reg ? cur_memwb.mem_data : cur_memwb.alu_result;
 		registers_.WriteGpr(cur_memwb.rd, value);
+		uint64_t new_val = value;
+		current_delta_.register_changes.push_back({cur_memwb.rd,0,old_val,new_val});
 	}
 	// Count any non-bubble WB as a retired instruction
 	instructions_retired_++;
 }
 
 void RV5SVM::Step() {
+	// Save current state for undo
+	current_delta_.old_pc = program_counter_;
+	current_delta_.ifid = if_id_;
+	current_delta_.idex = id_ex_;
+	current_delta_.exmem = ex_mem_;
+	current_delta_.memwb = mem_wb_;
+	current_delta_.cycle_s = cycle_s_;
+	current_delta_.instructions_retired = instructions_retired_;
+
+	// Clear change logs
+	current_delta_.register_changes.clear();
+	current_delta_.memory_changes.clear();
+
 	// One cycle: compute next pipeline regs from current, then commit
 	MEMWB n_memwb{}; EXMEM n_exmem{}; IDEX n_idex{}; IFID n_ifid{};
 
@@ -226,6 +263,13 @@ void RV5SVM::Step() {
 	}
 
 	cycle_s_++;
+
+	current_delta_.new_pc = program_counter_;
+
+	// After all changes, push to undo stack and clear
+	undo_stack_.push(current_delta_);
+	while (redo_stack_.size() > 0) redo_stack_.pop();
+	current_delta_ = StepDelta5();
 }
 
 void RV5SVM::Run() {
@@ -259,11 +303,68 @@ void RV5SVM::DebugRun() {
 }
 
 void RV5SVM::Undo() {
-	// Minimal: no per-instruction undo for pipeline yet
-	// Could be enhanced by logging register/memory changes per cycle.
+    if (undo_stack_.empty()) {
+        std::cout << "VM_NO_MORE_UNDO" << std::endl;
+        return;
+    }
+    StepDelta5 last = undo_stack_.top();
+    undo_stack_.pop();
+
+    // Restore pipeline registers and global state
+    if_id_ = last.ifid;
+    id_ex_ = last.idex;
+    ex_mem_ = last.exmem;
+    mem_wb_ = last.memwb;
+    program_counter_ = last.old_pc;
+    cycle_s_ = last.cycle_s;
+    instructions_retired_ = last.instructions_retired;
+
+    // Restore registers
+    for (const auto& change : last.register_changes) {
+        if (change.reg_type == 0)
+            registers_.WriteGpr(change.reg_index, change.old_value);
+        // Add CSR/FPR if needed
+    }
+    // Restore memory
+    for (const auto& change : last.memory_changes) {
+        for (size_t i = 0; i < change.old_bytes_vec.size(); ++i)
+            memory_controller_.WriteByte(change.address + i, change.old_bytes_vec[i]);
+    }
+
+    redo_stack_.push(last);
+    std::cout << "VM_UNDO_COMPLETED" << std::endl;
 }
 
 void RV5SVM::Redo() {
-	// Minimal: no redo
+    if (redo_stack_.empty()) {
+        std::cout << "VM_NO_MORE_REDO" << std::endl;
+        return;
+    }
+    StepDelta5 next = redo_stack_.top();
+    redo_stack_.pop();
+
+    // Restore pipeline registers and global state
+    if_id_ = next.ifid;
+    id_ex_ = next.idex;
+    ex_mem_ = next.exmem;
+    mem_wb_ = next.memwb;
+    program_counter_ = next.new_pc;
+    cycle_s_ = next.cycle_s;
+    instructions_retired_ = next.instructions_retired;
+
+    // Restore registers
+    for (const auto& change : next.register_changes) {
+        if (change.reg_type == 0)
+            registers_.WriteGpr(change.reg_index, change.new_value);
+        // Add CSR/FPR if needed
+    }
+    // Restore memory
+    for (const auto& change : next.memory_changes) {
+        for (size_t i = 0; i < change.new_bytes_vec.size(); ++i)
+            memory_controller_.WriteByte(change.address + i, change.new_bytes_vec[i]);
+    }
+
+    undo_stack_.push(next);
+    std::cout << "VM_REDO_COMPLETED" << std::endl;
 }
 

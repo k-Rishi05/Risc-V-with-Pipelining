@@ -9,6 +9,8 @@
 #include "vm/alu.h"
 #include "vm/rv5s/rv5s_control_unit.h"
 #include <iostream>
+#include <vector>
+#include <stack>
 
 #include <cstdint>
 
@@ -70,10 +72,44 @@ struct MEMWB {
 	uint64_t mem_data{0};
 };
 
+struct RegisterChange5
+{
+	unsigned int reg_index;
+	unsigned int reg_type; // 0 for GPR, 1 for CSR, 2 for FPR
+	uint64_t old_value;
+	uint64_t new_value;
+};
+
+struct MemoryChange5
+{
+	uint64_t address;
+	std::vector<uint8_t> old_bytes_vec; 
+	std::vector<uint8_t> new_bytes_vec; 
+};
+
+struct StepDelta5
+{
+	uint64_t old_pc;
+	uint64_t new_pc;
+	std:: vector<RegisterChange5> register_changes;
+	std:: vector<MemoryChange5> memory_changes;
+	IFID ifid;
+	IDEX idex;
+	EXMEM exmem;
+	MEMWB memwb;
+	uint64_t cycle_s;
+	uint64_t instructions_retired;
+};
+
+
 class RV5SVM : public VmBase {
  public:
 	RV5SVM();
 		~RV5SVM() = default;
+
+	std::stack<StepDelta5> undo_stack_;
+	std::stack<StepDelta5> redo_stack_;
+	StepDelta5 current_delta_;
 
 	void Run() override;
 	void DebugRun() override;

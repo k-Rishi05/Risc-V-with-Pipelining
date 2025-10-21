@@ -1,4 +1,4 @@
-lui x10, 0x10000         # x10 = 0x10000000 (data base)
+                         # x10 = 0x10000000 (data base)
 addi x11, x0, 42         # x11 = 42 (producer)
 addi x12, x0, 100        # x12 = 100 (independent)
 addi x0, x0, 0           # nop (extra to avoid RAW on x10 for SW)
@@ -17,3 +17,5 @@ or x8, x5, x7            # consumer; safe after two nops
 addi x0, x0, 0           # nop
 addi x0, x0, 0           # nop
 sll x9, x8, x7           # further consumer; safe after spacing
+addi x10, x0, 0
+addi x10, x0, 7

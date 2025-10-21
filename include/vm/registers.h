@@ -41,7 +41,7 @@ class RegisterFile {
     CSR              ///< Control and Status Register (CSR).
   };
 
-  RegisterFile();
+  RegisterFile(); ///< Constructor to initialize the register file.
 
   void Reset();
 
