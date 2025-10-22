@@ -157,6 +157,8 @@ class RV5SVM : public VmBase {
 	// hazard detection (stall only)
 	HazardUnit hazard_{};
 	bool stall_if_id_{false};
+	int stall_counter_{0};
+	bool flush_if_once_{false};
 
 	// internal helpers (none for basic pipeline)
 

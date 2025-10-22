@@ -56,6 +56,11 @@ void RV5SVM::stageIF() {
 			UpdateProgramCounter(4);
 		}
 	}
+	// Apply one-cycle IF flush if requested (control hazard from ID)
+	if (flush_if_once_) {
+		out = {}; // discard fetched instruction this cycle
+		flush_if_once_ = false;
+	}
 	// Commit IF/ID only if not stalling; otherwise freeze previous IF/ID
 	if (!stall_if_id_) {
 		if_id_ = out;
@@ -63,12 +68,27 @@ void RV5SVM::stageIF() {
 }
 
 void RV5SVM::stageID() {
-	// Stall detection: if enabled and hazard present, freeze IF/ID and inject bubble into ID/EX
+	// Hazard detection (stall-only): compute stalls and IF flush request
 	stall_if_id_ = false;
-	if (is_stall_mode() && hazard_.ShouldStall(if_id_, id_ex_)) {
-		stall_if_id_ = true;
-		id_ex_ = {}; // bubble
-		return;
+	if (is_stall_mode()) {
+		// If we are in the middle of a stall burst, continue stalling
+		if (stall_counter_ > 0) {
+			stall_if_id_ = true;
+			id_ex_ = {}; // bubble
+			stall_counter_--;
+			return;
+		}
+		// Fresh computation from current pipeline state
+		HazardDecision h = hazard_.Compute(if_id_, id_ex_, ex_mem_, mem_wb_);
+		if (h.flush_if) {
+			flush_if_once_ = true;
+		}
+		if (h.stall_cycles > 0) {
+			stall_counter_ = h.stall_cycles - 1; // we consume one stall this cycle
+			stall_if_id_ = true;
+			id_ex_ = {}; // bubble
+			return;
+		}
 	}
 
 	IDEX out{};

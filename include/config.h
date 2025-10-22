@@ -189,8 +189,8 @@ struct VmConfig {
   BranchResolveStage getBranchResolveStage() const { return branch_resolve_stage; }
 
   void modifyConfig(const std::string &section, const std::string &key, const std::string &value) {
-    if (section == "Execution") {
-      if (key == "pipeline_mode") {
+    if (section == "Execution" || section == "e") {
+      if (key == "pipeline_mode" || key == "m") {
         if (value == "1" || value == "single_cycle") setPipelineMode(PipelineMode::SINGLE_CYCLE);
         else if (value == "2" || value == "pipe_no_haz") setPipelineMode(PipelineMode::PIPE_NO_HAZ);
         else if (value == "3" || value == "pipe_stall") setPipelineMode(PipelineMode::PIPE_STALL);
