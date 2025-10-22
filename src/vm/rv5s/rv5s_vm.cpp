@@ -219,13 +219,31 @@ void RV5SVM::stageMEM() {
 		}
 	}
 	if (ex_mem_.mem_write) {
+		std::vector<uint8_t> old_bytes,new_bytes;
+		size_t size=0;
 		switch (ex_mem_.funct3) {
-	    case 0b000: memory_controller_.WriteByte(ex_mem_.alu_result, static_cast<uint8_t>(ex_mem_.rs2_val)); break; // SB
-	    case 0b001: memory_controller_.WriteHalfWord(ex_mem_.alu_result, static_cast<uint16_t>(ex_mem_.rs2_val)); break; // SH
-	    case 0b010: memory_controller_.WriteWord(ex_mem_.alu_result, static_cast<uint32_t>(ex_mem_.rs2_val)); break; // SW
-	    case 0b011: memory_controller_.WriteDoubleWord(ex_mem_.alu_result, ex_mem_.rs2_val); break; // SD
+	    case 0b000: size=1; break; // SB
+	    case 0b001: size=2; break; // SH
+	    case 0b010: size=4; break; // SW
+	    case 0b011: size=8; break; // SD
 			default: break;
 		}
+		for (size_t i=0;i<size;++i) 
+			old_bytes.push_back(memory_controller_.ReadByte(ex_mem_.alu_result + i));
+		
+		switch (ex_mem_.funct3) {
+		    case 0b000: memory_controller_.WriteByte(ex_mem_.alu_result, static_cast<uint8_t>(ex_mem_.rs2_val)); break; // SB
+	    	case 0b001: memory_controller_.WriteHalfWord(ex_mem_.alu_result, static_cast<uint16_t>(ex_mem_.rs2_val)); break; // SH
+	    	case 0b010: memory_controller_.WriteWord(ex_mem_.alu_result, static_cast<uint32_t>(ex_mem_.rs2_val)); break; // SW
+	    	case 0b011: memory_controller_.WriteDoubleWord(ex_mem_.alu_result, ex_mem_.rs2_val); break; // SD
+			default: break;
+		}
+		for (size_t i=0;i<size;++i) 
+			new_bytes.push_back(memory_controller_.ReadByte(ex_mem_.alu_result + i));
+		if(size>0 && old_bytes != new_bytes) {
+			current_delta_.memory_changes.push_back({ex_mem_.alu_result, old_bytes, new_bytes});
+		}
+
 	}
 
     out.valid = true;
@@ -243,14 +261,26 @@ void RV5SVM::stageMEM() {
 void RV5SVM::stageWB() {
 	if (!mem_wb_.valid) return;
 	if (mem_wb_.reg_write && mem_wb_.rd != 0) {
+		uint64_t old_val = registers_.ReadGpr(mem_wb_.rd);
 		uint64_t value = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
 		registers_.WriteGpr(mem_wb_.rd, value);
+		current_delta_.register_changes.push_back({mem_wb_.rd, 0, old_val, value});
+		std::cout << "WB: x" << mem_wb_.rd << " old=" << old_val << " new=" << value << std::endl;
 	}
+	// Always log register changes for WB, even if the same register is written in consecutive cycles
 	// Count any non-bubble WB as a retired instruction
 	instructions_retired_++;
 }
-
 void RV5SVM::Step() {
+	current_delta_.old_pc = program_counter_;
+	current_delta_.ifid = if_id_;
+	current_delta_.idex = id_ex_;
+	current_delta_.exmem = ex_mem_;
+	current_delta_.memwb = mem_wb_;
+	current_delta_.cycle_s = cycle_s_;
+	current_delta_.instructions_retired = instructions_retired_;
+	current_delta_.register_changes.clear();
+	current_delta_.memory_changes.clear();
 	// One cycle: propagate from back to front to avoid persistent next-state members
 	// 1) WB uses current MEM/WB
 	stageWB();
@@ -258,6 +288,15 @@ void RV5SVM::Step() {
 	stageEX();
 	stageID();
 	stageIF();
+
+	// Debug print: show all register changes logged for this cycle
+	if (!current_delta_.register_changes.empty()) {
+		//std::cout << "Step cycle=" << cycle_s_ << " Register changes: ";
+		for (const auto& change : current_delta_.register_changes) {
+			//std::cout << "x" << change.reg_index << "(" << change.old_value << "->" << change.new_value << ") ";
+		}
+		//std::cout << std::endl;
+	}
 
 	cycle_s_++;
 
@@ -316,12 +355,14 @@ void RV5SVM::Undo() {
     cycle_s_ = last.cycle_s;
     instructions_retired_ = last.instructions_retired;
 
-    // Restore registers
-    for (const auto& change : last.register_changes) {
-        if (change.reg_type == 0)
-            registers_.WriteGpr(change.reg_index, change.old_value);
-        // Add CSR/FPR if needed
-    }
+	// Restore registers
+	for (const auto& change : last.register_changes) {
+		if (change.reg_type == 0) {
+			//std::cout << "UNDO: x" << change.reg_index << " restore=" << change.old_value << std::endl;
+			registers_.WriteGpr(change.reg_index, change.old_value);
+		}
+		// Add CSR/FPR if needed
+	}
     // Restore memory
     for (const auto& change : last.memory_changes) {
         for (size_t i = 0; i < change.old_bytes_vec.size(); ++i)
