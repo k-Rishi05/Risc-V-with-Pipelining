@@ -20,10 +20,14 @@ struct HazardDecision {
 class HazardUnit {
 public:
 	// Compute data and control hazards for stall-only handling.
+	// forwarding_enabled toggles data-hazard policy:
+	// - false (stall-only mode): conservative EX/MEM dependencies stall
+	// - true  (forwarding mode): only unavoidable load-use stalls (ID depends on load in ID/EX)
 	HazardDecision Compute(const IFID& if_id,
 						   const IDEX& id_ex,
 						   const EXMEM& ex_mem,
-						   const MEMWB& mem_wb) const;
+						   const MEMWB& mem_wb,
+						   bool forwarding_enabled) const;
 };
 
 #endif // RV5S_HAZARD_UNIT_H

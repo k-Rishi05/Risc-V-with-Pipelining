@@ -32,7 +32,8 @@ static inline bool id_uses_rs2(uint8_t opcode) {
 HazardDecision HazardUnit::Compute(const IFID& if_id,
 								   const IDEX& id_ex,
 								   const EXMEM& ex_mem,
-								   const MEMWB& mem_wb) const {
+								   const MEMWB& mem_wb,
+								   bool forwarding_enabled) const {
 	HazardDecision d{};
 	if (!if_id.valid) return d;
 
@@ -54,10 +55,23 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 		}
 	};
 
-	// Data hazards: ID.rs1/rs2 vs EX/MEM/WB rd
-	consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, 2); // EX -> 2 stalls
-	consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, 1); // MEM -> 1 stall
-	consider_dep(mem_wb.rd, mem_wb.valid && mem_wb.reg_write, 0); // WB -> 0 stalls
+	if (!forwarding_enabled) {
+		// Stall-only mode (Mode 3): conservative stalls on RAW against EX/MEM producers
+		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, 2); // EX -> 2 stalls
+		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, 1); // MEM -> 1 stall
+		// No stall for WB (0-cycle)
+	} else {
+		// Forwarding mode (Mode 4): only unavoidable load-use stall
+		// If ID depends on a load currently in EX (id_ex.mem_read), stall one cycle.
+		if (id_ex.valid && id_ex.mem_read && id_ex.rd != 0) {
+			const bool dep_rs1 = id_uses_rs1(opcode) && (rs1 == id_ex.rd);
+			const bool dep_rs2 = id_uses_rs2(opcode) && (rs2 == id_ex.rd);
+			if (dep_rs1 || dep_rs2) {
+				d.stall_cycles = std::max(d.stall_cycles, 1);
+			}
+		}
+		// No stalls for EX/MEM ALU producers; forwarding resolves those.
+	}
 
 	return d;
 }

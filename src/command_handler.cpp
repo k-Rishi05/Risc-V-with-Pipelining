@@ -16,7 +16,7 @@ Command ParseCommand(const std::string &input) {
   iss >> command_str;
   command_handler::CommandType command_type = command_handler::CommandType::INVALID;
 
-  if (command_str=="modify_config" || command_str=="mconfig") {
+  if (command_str=="modify_config" || command_str=="mconfig" || command_str=="c") {
     command_type = command_handler::CommandType::MODIFY_CONFIG;
   } else if (command_str=="load" || command_str=="l") {
     command_type = command_handler::CommandType::LOAD;

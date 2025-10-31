@@ -1,14 +1,14 @@
 {
-  "program_counter": "0x00000020",
-  "current_line": 0,
-  "current_instruction": "0x00000000",
-  "disassembly_line_number": 0,
-  "cycle_count": 11,
-  "instructions_retired": 7,
-  "cpi": 1.5,
-  "ipc": 0.666667,
-  "stall_cycles": 0,
-  "branch_mispredictions": 0,
-  "breakpoints": [],
-  "output_status": "VM_EXITED"
+    "program_counter": "0x00000010",
+    "current_line": 0,
+    "current_instruction": "0x00000000",
+    "disassembly_line_number": 0,
+    "cycle_count": 9,
+    "instructions_retired": 4,
+    "cpi": 2.25,
+    "ipc": 0.444444,
+    "stall_cycles": 0,
+    "branch_mispredictions": 0,
+    "breakpoints": [],
+    "output_status": "VM_PROGRAM_END"
 }

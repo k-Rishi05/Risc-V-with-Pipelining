@@ -17,6 +17,10 @@ static inline bool is_stall_mode() {
 	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_STALL;
 }
 
+static inline bool is_forward_mode() {
+	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_FWD;
+}
+
 RV5SVM::RV5SVM() : VmBase() {
 	DumpRegisters(globals::registers_dump_file_path, registers_);
 	DumpState(globals::vm_state_dump_file_path);
@@ -68,9 +72,9 @@ void RV5SVM::stageIF() {
 }
 
 void RV5SVM::stageID() {
-	// Hazard detection (stall-only): compute stalls and IF flush request
+	// Hazard detection: compute stalls and IF flush request (Mode 3 and 4)
 	stall_if_id_ = false;
-	if (is_stall_mode()) {
+	if (is_stall_mode() || is_forward_mode()) {
 		// If we are in the middle of a stall burst, continue stalling
 		if (stall_counter_ > 0) {
 			stall_if_id_ = true;
@@ -79,7 +83,7 @@ void RV5SVM::stageID() {
 			return;
 		}
 		// Fresh computation from current pipeline state
-		HazardDecision h = hazard_.Compute(if_id_, id_ex_, ex_mem_, mem_wb_);
+		HazardDecision h = hazard_.Compute(if_id_, id_ex_, ex_mem_, mem_wb_, /*forwarding_enabled=*/is_forward_mode());
 		if (h.flush_if) {
 			flush_if_once_ = true;
 		}
@@ -129,26 +133,74 @@ void RV5SVM::stageID() {
 void RV5SVM::stageEX() {
 	EXMEM out{};
 	if (!id_ex_.valid) { ex_mem_ = out; return; }
-	uint64_t op1 = id_ex_.rs1_val;
-	uint64_t op2 = id_ex_.alu_src ? static_cast<uint64_t>(id_ex_.imm) : id_ex_.rs2_val;
 
-	// Special cases
+	// Default operands from register file; optionally override via forwarding in PIPE_FWD
+	uint64_t srcA = id_ex_.rs1_val;
+	uint64_t srcB_reg = id_ex_.rs2_val;
+	uint64_t store_data = id_ex_.rs2_val;
+
+	if (is_forward_mode()) {
+		const auto fwd = forward_.Compute(id_ex_, ex_mem_, mem_wb_);
+
+		// Resolve operand A (rs1)
+		switch (fwd.selA) {
+			case ForwardSel::EX:
+				srcA = ex_mem_.alu_result; // only ALU results are forwarded from EX/MEM
+				break;
+			case ForwardSel::MEM:
+				srcA = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				break;
+			case ForwardSel::REG:
+			default:
+				break;
+		}
+
+		// Resolve operand B (rs2) for ALU when alu_src==0
+		switch (fwd.selB) {
+			case ForwardSel::EX:
+				srcB_reg = ex_mem_.alu_result;
+				break;
+			case ForwardSel::MEM:
+				srcB_reg = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				break;
+			case ForwardSel::REG:
+			default:
+				break;
+		}
+
+		// Store data forwarding value (rs2), carried into EX/MEM.rs2_val
+		switch (fwd.storeSel) {
+			case ForwardSel::EX:
+				store_data = ex_mem_.alu_result;
+				break;
+			case ForwardSel::MEM:
+				store_data = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				break;
+			case ForwardSel::REG:
+			default:
+				break;
+		}
+	}
+
+	// Final ALU operands
+	const uint64_t op1 = srcA;
+	const uint64_t op2 = id_ex_.alu_src ? static_cast<uint64_t>(id_ex_.imm) : srcB_reg;
+
+	// Compute result according to opcode
 	uint64_t res = 0;
 	bool overflow = false; (void)overflow;
 	switch (id_ex_.opcode) {
 		case 0b0110111: // LUI
-			// ImmGenerator returns upper 20 bits (not shifted). LUI writes imm << 12.
 			res = static_cast<uint64_t>(static_cast<int64_t>(id_ex_.imm) << 12);
 			break;
 		case 0b0010111: // AUIPC
-			// AUIPC adds (imm << 12) to PC
 			res = static_cast<uint64_t>(static_cast<int64_t>(id_ex_.pc) + (static_cast<int64_t>(id_ex_.imm) << 12));
 			break;
-		case 0b1101111: // JAL
-			res = static_cast<uint64_t>(id_ex_.pc + 4); // return address
+		case 0b1101111: // JAL -> write return address
+			res = static_cast<uint64_t>(id_ex_.pc + 4);
 			break;
-		case 0b1100111: // JALR
-			res = static_cast<uint64_t>(id_ex_.pc + 4); // return address
+		case 0b1100111: // JALR -> write return address
+			res = static_cast<uint64_t>(id_ex_.pc + 4);
 			break;
 		default: {
 			auto [r, of] = alu_.execute(id_ex_.alu_signal, op1, op2);
@@ -158,46 +210,49 @@ void RV5SVM::stageEX() {
 		}
 	}
 
-	// Branch decision (simple, no prediction) for BEQ/BNE/BLT/BGE/...
-		bool take = false;
-		if (id_ex_.opcode == 0b1101111) { // JAL
-			take = true;
-		} else if (id_ex_.opcode == 0b1100111) { // JALR
-			take = true;
-		} else if (id_ex_.branch) {
+	// Branch decision (simple)
+	bool take = false;
+	if (id_ex_.opcode == 0b1101111) { // JAL
+		take = true;
+	} else if (id_ex_.opcode == 0b1100111) { // JALR
+		take = true;
+	} else if (id_ex_.branch) {
 		switch (id_ex_.funct3) {
 			case 0b000: take = (res == 0); break; // BEQ: rs1-rs2==0
 			case 0b001: take = (res != 0); break; // BNE
-			case 0b100: take = (res != 0); break; // BLT: kSlt -> res!=0 means rs1<rs2
-			case 0b101: take = (res == 0); break; // BGE: kSlt -> res==0 means rs1>=rs2
+			case 0b100: take = (res != 0); break; // BLT via SLT
+			case 0b101: take = (res == 0); break; // BGE via SLT
 			case 0b110: take = (res != 0); break; // BLTU
 			case 0b111: take = (res == 0); break; // BGEU
 			default: break;
 		}
 	}
+
+	// Fill EX/MEM
 	out.valid = true;
 	out.instr = id_ex_.instr;
 	out.pc = id_ex_.pc;
 	out.opcode = id_ex_.opcode;
 	out.funct3 = id_ex_.funct3;
 	out.rd = id_ex_.rd;
-	out.rs2_val = id_ex_.rs2_val;
+	out.rs2_val = store_data; // forward store data if needed
 	out.mem_to_reg = id_ex_.mem_to_reg;
 	out.reg_write = id_ex_.reg_write;
 	out.mem_read = id_ex_.mem_read;
 	out.mem_write = id_ex_.mem_write;
 	out.alu_result = res;
 	out.branch_taken = take;
-	if (id_ex_.opcode == 0b1100111) { // JALR
-		uint64_t target = (id_ex_.rs1_val + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
+	if (id_ex_.opcode == 0b1100111) { // JALR target uses forwarded rs1
+		uint64_t target = (srcA + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
 		out.branch_target = target;
 	} else {
 		out.branch_target = static_cast<uint64_t>(id_ex_.pc + id_ex_.imm);
 	}
-	// Redirect PC immediately on taken branch/jump; do not flush earlier stages.
+
 	if (out.branch_taken) {
 		program_counter_ = out.branch_target;
 	}
+
 	ex_mem_ = out;
 }
 
@@ -265,7 +320,7 @@ void RV5SVM::stageWB() {
 		uint64_t value = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
 		registers_.WriteGpr(mem_wb_.rd, value);
 		current_delta_.register_changes.push_back({mem_wb_.rd, 0, old_val, value});
-		std::cout << "WB: x" << mem_wb_.rd << " old=" << old_val << " new=" << value << std::endl;
+		//std::cout << "WB: x" << mem_wb_.rd << " old=" << old_val << " new=" << value << std::endl;
 	}
 	// Always log register changes for WB, even if the same register is written in consecutive cycles
 	// Count any non-bubble WB as a retired instruction

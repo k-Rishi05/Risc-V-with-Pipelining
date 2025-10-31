@@ -9,6 +9,7 @@
 #include "vm/alu.h"
 #include "vm/rv5s/rv5s_control_unit.h"
 #include "vm/rv5s/hazard_unit.h"
+#include "vm/rv5s/forward_unit.h"
 #include <iostream>
 #include <vector>
 #include <stack>
@@ -156,6 +157,7 @@ class RV5SVM : public VmBase {
 
 	// hazard detection (stall only)
 	HazardUnit hazard_{};
+	ForwardUnit forward_{};
 	bool stall_if_id_{false};
 	int stall_counter_{0};
 	bool flush_if_once_{false};
