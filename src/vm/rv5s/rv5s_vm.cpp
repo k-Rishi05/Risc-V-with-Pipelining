@@ -41,6 +41,7 @@ void RV5SVM::Reset() {
 
 	control_.Reset();
 	if_id_ = {}; id_ex_ = {}; ex_mem_ = {}; mem_wb_ = {};
+	breakpoints_.clear();  // Clear breakpoints on reset
 }
 
 bool RV5SVM::pipelineEmpty() const {

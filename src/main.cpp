@@ -260,10 +260,18 @@ int main(int argc, char *argv[]) {
     } else if (command.type==command_handler::CommandType::RUN) {
       if (vm_running) continue;
   ensureVmMatchesMode();
+  vm->Reset();  // Reset execution state before each run
+  if (program_loaded) {
+    vm->LoadProgram(program);  // Reload program after reset
+  }
       launch_vm_thread([&]() { vm->Run(); });
     } else if (command.type==command_handler::CommandType::DEBUG_RUN) {
       if (vm_running) continue;
   ensureVmMatchesMode();
+  vm->Reset();  // Reset execution state before debug run
+  if (program_loaded) {
+    vm->LoadProgram(program);  // Reload program after reset
+  }
       launch_vm_thread([&]() { vm->DebugRun(); });
     } else if (command.type==command_handler::CommandType::STOP) {
       vm->RequestStop();

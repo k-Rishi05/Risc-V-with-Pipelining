@@ -1057,6 +1057,7 @@ void RVSSVM::Reset() {
   current_delta_.new_pc = 0;
   undo_stack_ = std::stack<StepDelta>();
   redo_stack_ = std::stack<StepDelta>();
+  breakpoints_.clear();  // Clear breakpoints on reset
 
 }
 
