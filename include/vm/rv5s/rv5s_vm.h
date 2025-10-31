@@ -123,7 +123,7 @@ class RV5SVM : public VmBase {
 	void Redo() override; // not implemented
 	void Reset() override;
 
-		void PrintType() { std::cout << "rv5svm" << std::endl; }
+	void PrintType() { std::cout << "rv5svm" << std::endl; }
 
  private:
 	// control/decode helper

@@ -232,7 +232,8 @@ void RV5SVM::stageID() {
 			return;
 		}
 		// Fresh computation from current pipeline state
-		HazardDecision h = hazard_.Compute(if_id_, id_ex_, ex_mem_, mem_wb_, /*forwarding_enabled=*/is_forward_mode());
+		// Use OLD pipeline state (before stages execute) to check hazards
+		HazardDecision h = hazard_.Compute(if_id_, current_delta_.idex, current_delta_.exmem, current_delta_.memwb, /*forwarding_enabled=*/is_forward_mode());
 		if (h.flush_if) {
 			flush_if_once_ = true;
 		}
@@ -294,15 +295,16 @@ void RV5SVM::stageEX() {
 	uint64_t store_data = id_ex_.rs2_val;
 
 	if (is_forward_mode()) {
-		const auto fwd = forward_.Compute(id_ex_, ex_mem_, mem_wb_);
+		// Use OLD pipeline state for forwarding decision (before stages execute)
+		const auto fwd = forward_.Compute(id_ex_, current_delta_.exmem, current_delta_.memwb);
 
 		// Resolve operand A (rs1)
 		switch (fwd.selA) {
 			case ForwardSel::EX:
-				srcA = ex_mem_.alu_result; // only ALU results are forwarded from EX/MEM
+				srcA = current_delta_.exmem.alu_result; // Forward from OLD EX/MEM
 				break;
 			case ForwardSel::MEM:
-				srcA = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				srcA = current_delta_.memwb.mem_to_reg ? current_delta_.memwb.mem_data : current_delta_.memwb.alu_result;
 				break;
 			case ForwardSel::REG:
 			default:
@@ -312,10 +314,10 @@ void RV5SVM::stageEX() {
 		// Resolve operand B (rs2) for ALU when alu_src==0
 		switch (fwd.selB) {
 			case ForwardSel::EX:
-				srcB_reg = ex_mem_.alu_result;
+				srcB_reg = current_delta_.exmem.alu_result;
 				break;
 			case ForwardSel::MEM:
-				srcB_reg = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				srcB_reg = current_delta_.memwb.mem_to_reg ? current_delta_.memwb.mem_data : current_delta_.memwb.alu_result;
 				break;
 			case ForwardSel::REG:
 			default:
@@ -325,10 +327,10 @@ void RV5SVM::stageEX() {
 		// Store data forwarding value (rs2), carried into EX/MEM.rs2_val
 		switch (fwd.storeSel) {
 			case ForwardSel::EX:
-				store_data = ex_mem_.alu_result;
+				store_data = current_delta_.exmem.alu_result;
 				break;
 			case ForwardSel::MEM:
-				store_data = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+				store_data = current_delta_.memwb.mem_to_reg ? current_delta_.memwb.mem_data : current_delta_.memwb.alu_result;
 				break;
 			case ForwardSel::REG:
 			default:
@@ -532,7 +534,6 @@ void RV5SVM::Run() {
 	while (!stop_requested_) {
 		if (program_counter_ >= program_size_ && pipelineEmpty()) break;
 		Step();
-	std::cout << "Program Counter: " << program_counter_ << std::endl;
 	}
 	std::cout << "VM_PROGRAM_END" << std::endl;
 	output_status_ = "VM_PROGRAM_END";

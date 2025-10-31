@@ -75,10 +75,10 @@ EOF
                 echo -e "${GREEN}✓ PASSED${NC}"
                 PASSED_TESTS=$((PASSED_TESTS + 1))
                 
-                # Extract and display statistics
-                cycles=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | grep -oP 'cycles=\K[0-9]+')
-                retired=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | grep -oP 'retired=\K[0-9]+')
-                cpi=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | grep -oP 'cpi=\K[0-9.]+')
+                # Extract and display statistics (BSD grep compatible)
+                cycles=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | sed -n 's/.*cycles=\([0-9]*\).*/\1/p')
+                retired=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | sed -n 's/.*retired=\([0-9]*\).*/\1/p')
+                cpi=$(grep "VM_STATS" /tmp/test_output_${test_name}_${mode}.txt | sed -n 's/.*cpi=\([0-9.]*\).*/\1/p')
                 echo "  Cycles: $cycles, Retired: $retired, CPI: $cpi"
             else
                 echo -e "${RED}✗ FAILED (incomplete execution)${NC}"

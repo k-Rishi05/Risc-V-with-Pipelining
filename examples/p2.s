@@ -7,3 +7,5 @@ add  x3, x1, x2     # x3=3
 add  x4, x3, x3     # needs forward from EX/MEM to rs1/rs2 -> 6
 addi x6, x0, 4      # independent spacer
 add  x5, x4, x1     # needs forward from MEM/WB for x4 -> 10
+
+

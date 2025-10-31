@@ -1,0 +1,165 @@
+{
+  "test_raw_hazard": {
+    "registers": {
+      "x1": 10,
+      "x2": 15,
+      "x3": 20,
+      "x4": 30,
+      "x5": 30,
+      "x6": 35,
+      "x7": 100,
+      "x8": 101,
+      "x9": 102,
+      "x10": 103,
+      "x11": 50,
+      "x12": 60,
+      "x13": 110
+    },
+    "modes": {
+      "2": {
+        "description": "PIPE_NO_HAZ - No hazard detection, wrong results expected",
+        "cycles": 20,
+        "retired": 16,
+        "cpi": 1.25,
+        "registers_correct": false
+      },
+      "3": {
+        "description": "PIPE_STALL - Stalls on all hazards",
+        "cycles": 31,
+        "retired": 16,
+        "cpi": 1.9375
+      },
+      "4": {
+        "description": "PIPE_FWD - Forwarding enabled, minimal stalls",
+        "cycles": 20,
+        "retired": 16,
+        "cpi": 1.25
+      }
+    }
+  },
+  "test_load_use": {
+    "description": "Tests load-use hazards - require stalling even with forwarding",
+    "registers": {
+      "x1": 42,
+      "x2": 42,
+      "x3": 100,
+      "x4": 100,
+      "x5": 200,
+      "x6": 300,
+      "x7": 42,
+      "x8": 100,
+      "x9": 142,
+      "x10": 268435456,
+      "x11": 42,
+      "x12": 50,
+      "x13": 60,
+      "x14": 42
+    },
+    "modes": {
+      "2": {
+        "description": "No hazard detection - wrong results",
+        "cycles": 20,
+        "retired": 16,
+        "cpi": 1.25,
+        "registers_correct": false
+      },
+      "3": {
+        "description": "Stalls on all hazards including load-use",
+        "cycles": 33,
+        "retired": 16,
+        "cpi": 2.0625
+      },
+      "4": {
+        "description": "Stalls only on load-use hazards",
+        "cycles": 24,
+        "retired": 16,
+        "cpi": 1.5
+      }
+    }
+  },
+  "test_forwarding": {
+    "description": "Tests data forwarding paths (EX-to-EX, MEM-to-EX)",
+    "registers": {
+      "x1": 10,
+      "x2": 10,
+      "x3": 20,
+      "x4": 20,
+      "x5": 40,
+      "x6": 40,
+      "x7": 50,
+      "x8": 60,
+      "x9": 110,
+      "x10": 1,
+      "x11": 2,
+      "x12": 3,
+      "x13": 4,
+      "x20": 268435456,
+      "x21": 100,
+      "x22": 200,
+      "x23": 100,
+      "x24": 100
+    },
+    "modes": {
+      "2": {
+        "description": "No hazard detection - wrong results",
+        "cycles": 35,
+        "retired": 31,
+        "cpi": 1.12903,
+        "registers_correct": false
+      },
+      "3": {
+        "description": "Stalls on all dependencies",
+        "cycles": 57,
+        "retired": 31,
+        "cpi": 1.83871
+      },
+      "4": {
+        "description": "Forwarding reduces stalls significantly",
+        "cycles": 36,
+        "retired": 31,
+        "cpi": 1.16129
+      }
+    }
+  },
+  "test_control_hazard": {
+    "description": "Tests branch/jump hazards with IF flushes",
+    "registers": {
+      "x1": 10,
+      "x2": 10,
+      "x3": 0,
+      "x4": 100,
+      "x5": 5,
+      "x6": 10,
+      "x7": 0,
+      "x8": 77,
+      "x10": 0,
+      "x11": 222,
+      "x12": 12,
+      "x17": 1,
+      "x18": 2,
+      "x19": 0,
+      "x20": 222
+    },
+    "modes": {
+      "2": {
+        "description": "No hazard detection - branches work but data hazards fail",
+        "cycles": 33,
+        "retired": 29,
+        "cpi": 1.13793,
+        "registers_correct": false
+      },
+      "3": {
+        "description": "All hazards handled with stalls",
+        "cycles": 43,
+        "retired": 22,
+        "cpi": 1.95455
+      },
+      "4": {
+        "description": "Forwarding for data, stalls for branches",
+        "cycles": 33,
+        "retired": 22,
+        "cpi": 1.5
+      }
+    }
+  }
+}

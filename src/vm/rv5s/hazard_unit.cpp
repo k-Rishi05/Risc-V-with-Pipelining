@@ -40,6 +40,7 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 	// Control hazard: branch/jump in ID -> flush IF and 1 stall
 	uint8_t opcode = 0, rs1 = 0, rs2 = 0;
 	decode_rs(if_id.instr, opcode, rs1, rs2);
+	
 	const bool is_branch = (opcode == 0b1100011);
 	const bool is_jump = (opcode == 0b1101111) || (opcode == 0b1100111); // JAL/JALR
 	if (is_branch || is_jump) {
@@ -47,8 +48,9 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 		// Do NOT stall ID; the branch should advance to EX next cycle
 	}
 
-	auto consider_dep = [&](uint8_t rd, bool writes, int stall_if_dep){
-		if (writes && rd != 0) {
+	auto consider_dep = [&](uint8_t rd, bool writes, bool is_bubble, int stall_if_dep){
+		// Don't consider dependencies from stall bubbles
+		if (writes && rd != 0 && !is_bubble) {
 			if ((id_uses_rs1(opcode) && rs1 == rd) || (id_uses_rs2(opcode) && rs2 == rd)) {
 				d.stall_cycles = std::max(d.stall_cycles, stall_if_dep);
 			}
@@ -57,13 +59,13 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 
 	if (!forwarding_enabled) {
 		// Stall-only mode (Mode 3): conservative stalls on RAW against EX/MEM producers
-		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, 2); // EX -> 2 stalls
-		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, 1); // MEM -> 1 stall
+		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, id_ex.is_bubble, 2); // EX -> 2 stalls
+		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, ex_mem.is_bubble, 1); // MEM -> 1 stall
 		// No stall for WB (0-cycle)
 	} else {
 		// Forwarding mode (Mode 4): only unavoidable load-use stall
 		// If ID depends on a load currently in EX (id_ex.mem_read), stall one cycle.
-		if (id_ex.valid && id_ex.mem_read && id_ex.rd != 0) {
+		if (id_ex.valid && id_ex.mem_read && id_ex.rd != 0 && !id_ex.is_bubble) {
 			const bool dep_rs1 = id_uses_rs1(opcode) && (rs1 == id_ex.rd);
 			const bool dep_rs2 = id_uses_rs2(opcode) && (rs2 == id_ex.rd);
 			if (dep_rs1 || dep_rs2) {
