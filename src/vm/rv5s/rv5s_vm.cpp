@@ -9,6 +9,8 @@
 #include "globals.h"
 #include "common/instructions.h"
 #include "config.h"
+#include <iomanip>
+#include <sstream>
 
 using instruction_set::Instruction;
 using instruction_set::get_instr_encoding;
@@ -48,6 +50,147 @@ bool RV5SVM::pipelineEmpty() const {
 	return !if_id_.valid && !id_ex_.valid && !ex_mem_.valid && !mem_wb_.valid;
 }
 
+std::string RV5SVM::DisassembleInstruction(uint32_t instr) const {
+	// Don't convert to "nop" here - let the caller decide based on is_bubble flag
+	// if (instr == 0 || instr == 0x00000013) return "nop";
+	
+	uint8_t opcode = instr & 0x7F;
+	uint8_t funct3 = (instr >> 12) & 0x7;
+	uint8_t funct7 = (instr >> 25) & 0x7F;
+	uint8_t rd  = (instr >> 7)  & 0x1F;
+	uint8_t rs1 = (instr >> 15) & 0x1F;
+	uint8_t rs2 = (instr >> 20) & 0x1F;
+	int32_t imm_i = static_cast<int32_t>(instr) >> 20;
+	int32_t imm_s = ((static_cast<int32_t>(instr) >> 20) & ~0x1F) | rd;
+	
+	std::stringstream ss;
+	
+	switch (opcode) {
+		case 0b0110011: // R-type
+			if (funct7 == 0 && funct3 == 0) ss << "add";
+			else if (funct7 == 0x20 && funct3 == 0) ss << "sub";
+			else if (funct7 == 0 && funct3 == 1) ss << "sll";
+			else if (funct7 == 0 && funct3 == 2) ss << "slt";
+			else if (funct7 == 0 && funct3 == 3) ss << "sltu";
+			else if (funct7 == 0 && funct3 == 4) ss << "xor";
+			else if (funct7 == 0 && funct3 == 5) ss << "srl";
+			else if (funct7 == 0x20 && funct3 == 5) ss << "sra";
+			else if (funct7 == 0 && funct3 == 6) ss << "or";
+			else if (funct7 == 0 && funct3 == 7) ss << "and";
+			else ss << "r-type";
+			ss << " x" << (int)rd << ",x" << (int)rs1 << ",x" << (int)rs2;
+			break;
+		case 0b0010011: // I-type ALU
+			if (funct3 == 0) ss << "addi";
+			else if (funct3 == 4) ss << "xori";
+			else if (funct3 == 6) ss << "ori";
+			else if (funct3 == 7) ss << "andi";
+			else if (funct3 == 1) ss << "slli";
+			else if (funct3 == 5 && (funct7 == 0)) ss << "srli";
+			else if (funct3 == 5 && (funct7 == 0x20)) ss << "srai";
+			else if (funct3 == 2) ss << "slti";
+			else if (funct3 == 3) ss << "sltiu";
+			else ss << "i-alu";
+			ss << " x" << (int)rd << ",x" << (int)rs1 << "," << imm_i;
+			break;
+		case 0b0000011: // LOAD
+			if (funct3 == 0) ss << "lb";
+			else if (funct3 == 1) ss << "lh";
+			else if (funct3 == 2) ss << "lw";
+			else if (funct3 == 3) ss << "ld";
+			else if (funct3 == 4) ss << "lbu";
+			else if (funct3 == 5) ss << "lhu";
+			else if (funct3 == 6) ss << "lwu";
+			else ss << "load";
+			ss << " x" << (int)rd << "," << imm_i << "(x" << (int)rs1 << ")";
+			break;
+		case 0b0100011: // STORE
+			if (funct3 == 0) ss << "sb";
+			else if (funct3 == 1) ss << "sh";
+			else if (funct3 == 2) ss << "sw";
+			else if (funct3 == 3) ss << "sd";
+			else ss << "store";
+			ss << " x" << (int)rs2 << "," << imm_s << "(x" << (int)rs1 << ")";
+			break;
+		case 0b1100011: // BRANCH
+			if (funct3 == 0) ss << "beq";
+			else if (funct3 == 1) ss << "bne";
+			else if (funct3 == 4) ss << "blt";
+			else if (funct3 == 5) ss << "bge";
+			else if (funct3 == 6) ss << "bltu";
+			else if (funct3 == 7) ss << "bgeu";
+			else ss << "branch";
+			ss << " x" << (int)rs1 << ",x" << (int)rs2 << ",<off>";
+			break;
+		case 0b0110111: // LUI
+			ss << "lui x" << (int)rd << ",<imm>";
+			break;
+		case 0b0010111: // AUIPC
+			ss << "auipc x" << (int)rd << ",<imm>";
+			break;
+		case 0b1101111: // JAL
+			ss << "jal x" << (int)rd << ",<off>";
+			break;
+		case 0b1100111: // JALR
+			ss << "jalr x" << (int)rd << "," << imm_i << "(x" << (int)rs1 << ")";
+			break;
+		default:
+			ss << "unknown";
+	}
+	return ss.str();
+}
+
+void RV5SVM::PrintPipelineState() {
+	std::cout << "┌────────────────────────────────────────────────┐" << std::endl;
+	std::cout << "│ Pipeline State (Cycle " << std::setw(4) << cycle_s_ << ")                   │" << std::endl;
+	std::cout << "├────────────────────────────────────────────────┤" << std::endl;
+	
+	auto print_stage = [](const std::string& name, const std::string& instr, bool valid, bool is_bubble) {
+		std::cout << "│ " << std::setw(4) << std::left << name << " │ ";
+		if (!valid) {
+			// Pipeline stage not valid (empty during fill/drain)
+			std::cout << std::setw(38) << "none";
+		} else if (is_bubble) {
+			// Valid stage but it's a stall bubble
+			std::cout << std::setw(38) << "nop";
+		} else {
+			// Valid stage with real instruction
+			std::cout << std::setw(38) << instr;
+		}
+		std::cout << " │" << std::endl;
+	};
+	
+	// Show the current state of the pipeline AFTER this cycle's execution
+	// IF stage: next instruction to be fetched (at current PC)
+	std::string if_instr = "";
+	bool if_valid = false;
+	if (program_counter_ < program_size_) {
+		uint32_t fetch_instr = memory_controller_.ReadWord(program_counter_);
+		if_instr = DisassembleInstruction(fetch_instr);
+		if_valid = true;
+	}
+	
+	// ID stage: instruction in IF/ID register
+	std::string id_instr = if_id_.valid ? DisassembleInstruction(if_id_.instr) : "";
+	
+	// EX stage: instruction in ID/EX register  
+	std::string ex_instr = id_ex_.valid ? DisassembleInstruction(id_ex_.instr) : "";
+	
+	// MEM stage: instruction in EX/MEM register
+	std::string mem_instr = ex_mem_.valid ? DisassembleInstruction(ex_mem_.instr) : "";
+	
+	// WB stage: instruction in MEM/WB register
+	std::string wb_instr = mem_wb_.valid ? DisassembleInstruction(mem_wb_.instr) : "";
+	
+	print_stage("IF", if_instr, if_valid, false); // IF stage never has bubbles
+	print_stage("ID", id_instr, if_id_.valid, false); // ID stage doesn't have bubbles (stalls go to EX)
+	print_stage("EX", ex_instr, id_ex_.valid, id_ex_.is_bubble);
+	print_stage("MEM", mem_instr, ex_mem_.valid, ex_mem_.is_bubble);
+	print_stage("WB", wb_instr, mem_wb_.valid, mem_wb_.is_bubble);
+	
+	std::cout << "└────────────────────────────────────────────────┘" << std::endl;
+}
+
 // Removed applyModeFromConfig: basic pipeline does not read dynamic config flags.
 
 void RV5SVM::stageIF() {
@@ -79,7 +222,12 @@ void RV5SVM::stageID() {
 		// If we are in the middle of a stall burst, continue stalling
 		if (stall_counter_ > 0) {
 			stall_if_id_ = true;
-			id_ex_ = {}; // bubble
+			// Insert NOP bubble (valid=true, is_bubble=true)
+			IDEX bubble{};
+			bubble.valid = true;
+			bubble.is_bubble = true;
+			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
+			id_ex_ = bubble;
 			stall_counter_--;
 			return;
 		}
@@ -91,7 +239,12 @@ void RV5SVM::stageID() {
 		if (h.stall_cycles > 0) {
 			stall_counter_ = h.stall_cycles - 1; // we consume one stall this cycle
 			stall_if_id_ = true;
-			id_ex_ = {}; // bubble
+			// Insert NOP bubble (valid=true, is_bubble=true)
+			IDEX bubble{};
+			bubble.valid = true;
+			bubble.is_bubble = true;
+			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
+			id_ex_ = bubble;
 			return;
 		}
 	}
@@ -231,6 +384,7 @@ void RV5SVM::stageEX() {
 
 	// Fill EX/MEM
 	out.valid = true;
+	out.is_bubble = id_ex_.is_bubble; // Propagate bubble flag
 	out.instr = id_ex_.instr;
 	out.pc = id_ex_.pc;
 	out.opcode = id_ex_.opcode;
@@ -303,6 +457,7 @@ void RV5SVM::stageMEM() {
 	}
 
     out.valid = true;
+    out.is_bubble = ex_mem_.is_bubble; // Propagate bubble flag
     out.instr = ex_mem_.instr;
     out.rd = ex_mem_.rd;
     out.mem_to_reg = ex_mem_.mem_to_reg;
@@ -323,9 +478,10 @@ void RV5SVM::stageWB() {
 		current_delta_.register_changes.push_back({mem_wb_.rd, 0, old_val, value});
 		//std::cout << "WB: x" << mem_wb_.rd << " old=" << old_val << " new=" << value << std::endl;
 	}
-	// Always log register changes for WB, even if the same register is written in consecutive cycles
-	// Count any non-bubble WB as a retired instruction
-	instructions_retired_++;
+	// Count only non-bubble instructions as retired
+	if (!mem_wb_.is_bubble) {
+		instructions_retired_++;
+	}
 }
 void RV5SVM::Step() {
 	current_delta_.old_pc = program_counter_;
@@ -362,10 +518,17 @@ void RV5SVM::Step() {
 	undo_stack_.push(current_delta_);
 	while (redo_stack_.size() > 0) redo_stack_.pop();
 	current_delta_ = StepDelta5();
+	
+	// Display pipeline state after each step
+	PrintPipelineState();
 }
 
 void RV5SVM::Run() {
 	stop_requested_ = false;
+	
+	// Print initial pipeline state (cycle 0)
+	PrintPipelineState();
+	
 	while (!stop_requested_) {
 		if (program_counter_ >= program_size_ && pipelineEmpty()) break;
 		Step();

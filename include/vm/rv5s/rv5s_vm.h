@@ -25,6 +25,7 @@ struct IFID {
 
 struct IDEX {
 	bool valid{false};
+	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
 	uint32_t instr{0};
 	uint64_t pc{0};
 	uint8_t opcode{0};
@@ -47,6 +48,7 @@ struct IDEX {
 
 struct EXMEM {
 	bool valid{false};
+	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
 	uint32_t instr{0};
 	uint64_t pc{0};
 	uint8_t opcode{0};
@@ -66,6 +68,7 @@ struct EXMEM {
 
 struct MEMWB {
 	bool valid{false};
+	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
 	uint32_t instr{0};
 	uint8_t rd{0};
 	bool mem_to_reg{false};
@@ -163,6 +166,8 @@ class RV5SVM : public VmBase {
 	bool flush_if_once_{false};
 
 	// internal helpers (none for basic pipeline)
+	std::string DisassembleInstruction(uint32_t instr) const;
+	void PrintPipelineState();
 
 	bool pipelineEmpty() const;
 };

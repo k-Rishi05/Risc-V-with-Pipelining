@@ -1,3 +1,4 @@
+addi x0,x0,0
 addi x10,x0,5
 sw x10,0(x11)
 lw x13,0(x11)
