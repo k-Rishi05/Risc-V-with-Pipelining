@@ -37,16 +37,9 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 	HazardDecision d{};
 	if (!if_id.valid) return d;
 
-	// Control hazard: branch/jump in ID -> flush IF and 1 stall
+	// Data hazard detection only (control hazards handled in stageEX)
 	uint8_t opcode = 0, rs1 = 0, rs2 = 0;
 	decode_rs(if_id.instr, opcode, rs1, rs2);
-	
-	const bool is_branch = (opcode == 0b1100011);
-	const bool is_jump = (opcode == 0b1101111) || (opcode == 0b1100111); // JAL/JALR
-	if (is_branch || is_jump) {
-		d.flush_if = true; // one-shot IF flush creates the 1-cycle bubble behind the branch
-		// Do NOT stall ID; the branch should advance to EX next cycle
-	}
 
 	auto consider_dep = [&](uint8_t rd, bool writes, bool is_bubble, int stall_if_dep){
 		// Don't consider dependencies from stall bubbles

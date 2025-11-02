@@ -124,6 +124,7 @@ class RV5SVM : public VmBase {
 	void Reset() override;
 
 	void PrintType() { std::cout << "rv5svm" << std::endl; }
+	void PrintPipelineState();
 
  private:
 	// control/decode helper
@@ -164,10 +165,10 @@ class RV5SVM : public VmBase {
 	bool stall_if_id_{false};
 	int stall_counter_{0};
 	bool flush_if_once_{false};
+	bool flush_id_once_{false}; // For control hazards when branch is taken
 
 	// internal helpers (none for basic pipeline)
 	std::string DisassembleInstruction(uint32_t instr) const;
-	void PrintPipelineState();
 
 	bool pipelineEmpty() const;
 };

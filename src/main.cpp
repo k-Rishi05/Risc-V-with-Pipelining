@@ -257,6 +257,10 @@ int main(int argc, char *argv[]) {
   vm->LoadProgram(program);
   program_loaded = true;
       std::cout << "Program loaded: " << command.args[0] << std::endl;
+      // Print initial pipeline state (cycle 0) for interactive stepping
+      if (auto* rv5s = dynamic_cast<RV5SVM*>(vm.get())) {
+        rv5s->PrintPipelineState();
+      }
     } else if (command.type==command_handler::CommandType::RUN) {
       if (vm_running) continue;
   ensureVmMatchesMode();

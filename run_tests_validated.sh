@@ -181,7 +181,7 @@ main() {
     # Check prerequisites
     print_section "Checking Prerequisites"
     
-    check_file "$BUILD_DIR/CMakeLists.txt" || check_file "CMakeLists.txt" || exit 1
+    check_file "CMakeLists.txt" || check_file "CMakeLists.txt" || exit 1
     echo -e "${GREEN}✓ CMakeLists.txt found${NC}"
     
     if [ -f "$EXPECTATIONS_FILE" ]; then

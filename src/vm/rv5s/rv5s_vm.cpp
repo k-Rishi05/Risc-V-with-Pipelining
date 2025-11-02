@@ -195,6 +195,15 @@ void RV5SVM::PrintPipelineState() {
 
 void RV5SVM::stageIF() {
 	IFID out{};
+	
+	// If flush requested, insert bubble instead of fetching
+	if (flush_if_once_) {
+		out = {}; // Invalid/empty IF/ID
+		flush_if_once_ = false;
+		if_id_ = out;
+		return;
+	}
+	
 	if (program_counter_ < program_size_) {
 		out.instr = memory_controller_.ReadWord(program_counter_);
 		out.pc = program_counter_;
@@ -204,11 +213,7 @@ void RV5SVM::stageIF() {
 			UpdateProgramCounter(4);
 		}
 	}
-	// Apply one-cycle IF flush if requested (control hazard from ID)
-	if (flush_if_once_) {
-		out = {}; // discard fetched instruction this cycle
-		flush_if_once_ = false;
-	}
+	
 	// Commit IF/ID only if not stalling; otherwise freeze previous IF/ID
 	if (!stall_if_id_) {
 		if_id_ = out;
@@ -216,7 +221,18 @@ void RV5SVM::stageIF() {
 }
 
 void RV5SVM::stageID() {
-	// Hazard detection: compute stalls and IF flush request (Mode 3 and 4)
+	// Handle control hazard flush (branch taken in previous cycle)
+	if (flush_id_once_) {
+		IDEX bubble{};
+		bubble.valid = true;
+		bubble.is_bubble = true;
+		bubble.instr = 0x00000013; // NOP
+		id_ex_ = bubble;
+		flush_id_once_ = false;
+		return;
+	}
+	
+	// Hazard detection: compute stalls (Mode 3 and 4)
 	stall_if_id_ = false;
 	if (is_stall_mode() || is_forward_mode()) {
 		// If we are in the middle of a stall burst, continue stalling
@@ -234,9 +250,6 @@ void RV5SVM::stageID() {
 		// Fresh computation from current pipeline state
 		// Use OLD pipeline state (before stages execute) to check hazards
 		HazardDecision h = hazard_.Compute(if_id_, current_delta_.idex, current_delta_.exmem, current_delta_.memwb, /*forwarding_enabled=*/is_forward_mode());
-		if (h.flush_if) {
-			flush_if_once_ = true;
-		}
 		if (h.stall_cycles > 0) {
 			stall_counter_ = h.stall_cycles - 1; // we consume one stall this cycle
 			stall_if_id_ = true;
@@ -408,6 +421,9 @@ void RV5SVM::stageEX() {
 
 	if (out.branch_taken) {
 		program_counter_ = out.branch_target;
+		// Flush IF and ID stages on next cycle (instructions fetched before branch resolved are invalid)
+		flush_if_once_ = true;
+		flush_id_once_ = true;
 	}
 
 	ex_mem_ = out;

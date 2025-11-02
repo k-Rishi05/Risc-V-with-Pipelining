@@ -3,6 +3,7 @@
 
 .text
 # Test 1: Simple taken branch
+addi x2,x0,0
 addi x1, x0, 10
 addi x2, x0, 10
 beq x1, x2, target1  # Branch taken
