@@ -143,22 +143,22 @@
     "modes": {
       "2": {
         "description": "No hazard detection - branches work but data hazards fail",
-        "cycles": 33,
-        "retired": 29,
-        "cpi": 1.13793,
+        "cycles": 39,
+        "retired": 25,
+        "cpi": 1.56,
         "registers_correct": false
       },
       "3": {
         "description": "All hazards handled with stalls",
-        "cycles": 43,
-        "retired": 22,
-        "cpi": 1.95455
+        "cycles": 50,
+        "retired": 24,
+        "cpi": 2.08333
       },
       "4": {
         "description": "Forwarding for data, stalls for branches",
-        "cycles": 33,
-        "retired": 22,
-        "cpi": 1.5
+        "cycles": 40,
+        "retired": 24,
+        "cpi": 1.66667
       }
     }
   }

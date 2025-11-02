@@ -183,7 +183,7 @@ void RV5SVM::PrintPipelineState() {
 	std::string wb_instr = mem_wb_.valid ? DisassembleInstruction(mem_wb_.instr) : "";
 	
 	print_stage("IF", if_instr, if_valid, false); // IF stage never has bubbles
-	print_stage("ID", id_instr, if_id_.valid, false); // ID stage doesn't have bubbles (stalls go to EX)
+	print_stage("ID", id_instr, if_id_.valid, if_id_.is_bubble); // ID can have bubbles from control hazards
 	print_stage("EX", ex_instr, id_ex_.valid, id_ex_.is_bubble);
 	print_stage("MEM", mem_instr, ex_mem_.valid, ex_mem_.is_bubble);
 	print_stage("WB", wb_instr, mem_wb_.valid, mem_wb_.is_bubble);
@@ -198,7 +198,9 @@ void RV5SVM::stageIF() {
 	
 	// If flush requested, insert bubble instead of fetching
 	if (flush_if_once_) {
-		out = {}; // Invalid/empty IF/ID
+		out.valid = true;
+		out.is_bubble = true;
+		out.instr = 0x00000013; // NOP
 		flush_if_once_ = false;
 		if_id_ = out;
 		return;
@@ -221,8 +223,9 @@ void RV5SVM::stageIF() {
 }
 
 void RV5SVM::stageID() {
-	// Handle control hazard flush (branch taken in previous cycle)
-	if (flush_id_once_) {
+	// Handle control hazard flush or bubble propagation
+	if (flush_id_once_ || (if_id_.valid && if_id_.is_bubble)) {
+		// Insert bubble into ID/EX (stageIF will handle IF/ID flush if needed)
 		IDEX bubble{};
 		bubble.valid = true;
 		bubble.is_bubble = true;
@@ -231,7 +234,7 @@ void RV5SVM::stageID() {
 		flush_id_once_ = false;
 		return;
 	}
-	
+
 	// Hazard detection: compute stalls (Mode 3 and 4)
 	stall_if_id_ = false;
 	if (is_stall_mode() || is_forward_mode()) {

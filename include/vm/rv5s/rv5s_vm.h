@@ -19,6 +19,7 @@
 // Minimal 5-stage pipeline register bundles
 struct IFID {
 	bool valid{false};
+	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
 	uint32_t instr{0};
 	uint64_t pc{0};
 };
