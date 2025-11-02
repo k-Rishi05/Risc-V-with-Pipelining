@@ -19,14 +19,18 @@
 // Minimal 5-stage pipeline register bundles
 struct IFID {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
+	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
+	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint64_t pc{0};
 };
 
 struct IDEX {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
+	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
+	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint64_t pc{0};
 	uint8_t opcode{0};
@@ -49,7 +53,9 @@ struct IDEX {
 
 struct EXMEM {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
+	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
+	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint64_t pc{0};
 	uint8_t opcode{0};
@@ -69,7 +75,9 @@ struct EXMEM {
 
 struct MEMWB {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a stall bubble, not a real instruction
+	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
+	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint8_t rd{0};
 	bool mem_to_reg{false};

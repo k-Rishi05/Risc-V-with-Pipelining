@@ -145,14 +145,21 @@ void RV5SVM::PrintPipelineState() {
 	std::cout << "│ Pipeline State (Cycle " << std::setw(4) << cycle_s_ << ")                   │" << std::endl;
 	std::cout << "├────────────────────────────────────────────────┤" << std::endl;
 	
-	auto print_stage = [](const std::string& name, const std::string& instr, bool valid, bool is_bubble) {
+	auto print_stage = [](const std::string& name, const std::string& instr, bool valid, bool is_bubble, auto bubble_type) {
 		std::cout << "│ " << std::setw(4) << std::left << name << " │ ";
 		if (!valid) {
 			// Pipeline stage not valid (empty during fill/drain)
 			std::cout << std::setw(38) << "none";
 		} else if (is_bubble) {
-			// Valid stage but it's a stall bubble
-			std::cout << std::setw(38) << "nop";
+			// Valid stage but it's a bubble - show type
+			using BT = decltype(bubble_type);
+			if (bubble_type == BT::Stall) {
+				std::cout << std::setw(38) << "nop(stall)";
+			} else if (bubble_type == BT::Flush) {
+				std::cout << std::setw(38) << "nop(flush)";
+			} else {
+				std::cout << std::setw(38) << "nop";
+			}
 		} else {
 			// Valid stage with real instruction
 			std::cout << std::setw(38) << instr;
@@ -182,11 +189,11 @@ void RV5SVM::PrintPipelineState() {
 	// WB stage: instruction in MEM/WB register
 	std::string wb_instr = mem_wb_.valid ? DisassembleInstruction(mem_wb_.instr) : "";
 	
-	print_stage("IF", if_instr, if_valid, false); // IF stage never has bubbles
-	print_stage("ID", id_instr, if_id_.valid, if_id_.is_bubble); // ID can have bubbles from control hazards
-	print_stage("EX", ex_instr, id_ex_.valid, id_ex_.is_bubble);
-	print_stage("MEM", mem_instr, ex_mem_.valid, ex_mem_.is_bubble);
-	print_stage("WB", wb_instr, mem_wb_.valid, mem_wb_.is_bubble);
+	print_stage("IF", if_instr, if_valid, false, IFID::BubbleType::None); // IF stage never has bubbles
+	print_stage("ID", id_instr, if_id_.valid, if_id_.is_bubble, if_id_.bubble_type);
+	print_stage("EX", ex_instr, id_ex_.valid, id_ex_.is_bubble, id_ex_.bubble_type);
+	print_stage("MEM", mem_instr, ex_mem_.valid, ex_mem_.is_bubble, ex_mem_.bubble_type);
+	print_stage("WB", wb_instr, mem_wb_.valid, mem_wb_.is_bubble, mem_wb_.bubble_type);
 	
 	std::cout << "└────────────────────────────────────────────────┘" << std::endl;
 }
@@ -200,6 +207,7 @@ void RV5SVM::stageIF() {
 	if (flush_if_once_) {
 		out.valid = true;
 		out.is_bubble = true;
+		out.bubble_type = IFID::BubbleType::Flush;
 		out.instr = 0x00000013; // NOP
 		flush_if_once_ = false;
 		if_id_ = out;
@@ -229,6 +237,7 @@ void RV5SVM::stageID() {
 		IDEX bubble{};
 		bubble.valid = true;
 		bubble.is_bubble = true;
+		bubble.bubble_type = flush_id_once_ ? IDEX::BubbleType::Flush : if_id_.bubble_type == IFID::BubbleType::Flush ? IDEX::BubbleType::Flush : IDEX::BubbleType::Stall;
 		bubble.instr = 0x00000013; // NOP
 		id_ex_ = bubble;
 		flush_id_once_ = false;
@@ -245,6 +254,7 @@ void RV5SVM::stageID() {
 			IDEX bubble{};
 			bubble.valid = true;
 			bubble.is_bubble = true;
+			bubble.bubble_type = IDEX::BubbleType::Stall;
 			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
 			id_ex_ = bubble;
 			stall_counter_--;
@@ -260,6 +270,7 @@ void RV5SVM::stageID() {
 			IDEX bubble{};
 			bubble.valid = true;
 			bubble.is_bubble = true;
+			bubble.bubble_type = IDEX::BubbleType::Stall;
 			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
 			id_ex_ = bubble;
 			return;
@@ -403,6 +414,7 @@ void RV5SVM::stageEX() {
 	// Fill EX/MEM
 	out.valid = true;
 	out.is_bubble = id_ex_.is_bubble; // Propagate bubble flag
+	out.bubble_type = static_cast<EXMEM::BubbleType>(id_ex_.bubble_type); // Propagate bubble type
 	out.instr = id_ex_.instr;
 	out.pc = id_ex_.pc;
 	out.opcode = id_ex_.opcode;
@@ -479,6 +491,7 @@ void RV5SVM::stageMEM() {
 
     out.valid = true;
     out.is_bubble = ex_mem_.is_bubble; // Propagate bubble flag
+    out.bubble_type = static_cast<MEMWB::BubbleType>(ex_mem_.bubble_type); // Propagate bubble type
     out.instr = ex_mem_.instr;
     out.rd = ex_mem_.rd;
     out.mem_to_reg = ex_mem_.mem_to_reg;
