@@ -51,8 +51,6 @@ bool RV5SVM::pipelineEmpty() const {
 }
 
 std::string RV5SVM::DisassembleInstruction(uint32_t instr) const {
-	// Don't convert to "nop" here - let the caller decide based on is_bubble flag
-	// if (instr == 0 || instr == 0x00000013) return "nop";
 	
 	uint8_t opcode = instr & 0x7F;
 	uint8_t funct3 = (instr >> 12) & 0x7;
@@ -167,7 +165,6 @@ void RV5SVM::PrintPipelineState() {
 		std::cout << " │" << std::endl;
 	};
 	
-	// Show the current state of the pipeline AFTER this cycle's execution
 	// IF stage: next instruction to be fetched (at current PC)
 	std::string if_instr = "";
 	bool if_valid = false;
@@ -198,7 +195,6 @@ void RV5SVM::PrintPipelineState() {
 	std::cout << "└────────────────────────────────────────────────┘" << std::endl;
 }
 
-// Removed applyModeFromConfig: basic pipeline does not read dynamic config flags.
 
 void RV5SVM::stageIF() {
 	IFID out{};
@@ -247,7 +243,6 @@ void RV5SVM::stageID() {
 	// Hazard detection: compute stalls (Mode 3 and 4)
 	stall_if_id_ = false;
 	if (is_stall_mode() || is_forward_mode()) {
-		// If we are in the middle of a stall burst, continue stalling
 		if (stall_counter_ > 0) {
 			stall_if_id_ = true;
 			// Insert NOP bubble (valid=true, is_bubble=true)
@@ -260,11 +255,10 @@ void RV5SVM::stageID() {
 			stall_counter_--;
 			return;
 		}
-		// Fresh computation from current pipeline state
-		// Use OLD pipeline state (before stages execute) to check hazards
+
 		HazardDecision h = hazard_.Compute(if_id_, current_delta_.idex, current_delta_.exmem, current_delta_.memwb, /*forwarding_enabled=*/is_forward_mode());
 		if (h.stall_cycles > 0) {
-			stall_counter_ = h.stall_cycles - 1; // we consume one stall this cycle
+			stall_counter_ = h.stall_cycles - 1; 
 			stall_if_id_ = true;
 			// Insert NOP bubble (valid=true, is_bubble=true)
 			IDEX bubble{};
@@ -316,19 +310,17 @@ void RV5SVM::stageEX() {
 	EXMEM out{};
 	if (!id_ex_.valid) { ex_mem_ = out; return; }
 
-	// Default operands from register file; optionally override via forwarding in PIPE_FWD
 	uint64_t srcA = id_ex_.rs1_val;
 	uint64_t srcB_reg = id_ex_.rs2_val;
 	uint64_t store_data = id_ex_.rs2_val;
 
 	if (is_forward_mode()) {
-		// Use OLD pipeline state for forwarding decision (before stages execute)
 		const auto fwd = forward_.Compute(id_ex_, current_delta_.exmem, current_delta_.memwb);
 
-		// Resolve operand A (rs1)
+		// Resolve rs1
 		switch (fwd.selA) {
 			case ForwardSel::EX:
-				srcA = current_delta_.exmem.alu_result; // Forward from OLD EX/MEM
+				srcA = current_delta_.exmem.alu_result; 
 				break;
 			case ForwardSel::MEM:
 				srcA = current_delta_.memwb.mem_to_reg ? current_delta_.memwb.mem_data : current_delta_.memwb.alu_result;
@@ -338,7 +330,7 @@ void RV5SVM::stageEX() {
 				break;
 		}
 
-		// Resolve operand B (rs2) for ALU when alu_src==0
+		// Resolve rs2 for ALU when alu_src==0
 		switch (fwd.selB) {
 			case ForwardSel::EX:
 				srcB_reg = current_delta_.exmem.alu_result;
@@ -393,7 +385,7 @@ void RV5SVM::stageEX() {
 		}
 	}
 
-	// Branch decision (simple)
+	// Branch decision
 	bool take = false;
 	if (id_ex_.opcode == 0b1101111) { // JAL
 		take = true;
@@ -436,7 +428,7 @@ void RV5SVM::stageEX() {
 
 	if (out.branch_taken) {
 		program_counter_ = out.branch_target;
-		// Flush IF and ID stages on next cycle (instructions fetched before branch resolved are invalid)
+		// Flush IF and ID stages on next cycle 
 		flush_if_once_ = true;
 		flush_id_once_ = true;
 	}
@@ -499,7 +491,6 @@ void RV5SVM::stageMEM() {
     out.alu_result = ex_mem_.alu_result;
     out.mem_data = mem_data;
 
-	// No control-hazard handling in basic pipeline; branch effects are ignored here.
 	mem_wb_ = out;
 }
 
@@ -510,7 +501,6 @@ void RV5SVM::stageWB() {
 		uint64_t value = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
 		registers_.WriteGpr(mem_wb_.rd, value);
 		current_delta_.register_changes.push_back({mem_wb_.rd, 0, old_val, value});
-		//std::cout << "WB: x" << mem_wb_.rd << " old=" << old_val << " new=" << value << std::endl;
 	}
 	// Count only non-bubble instructions as retired
 	if (!mem_wb_.is_bubble) {
@@ -527,8 +517,7 @@ void RV5SVM::Step() {
 	current_delta_.instructions_retired = instructions_retired_;
 	current_delta_.register_changes.clear();
 	current_delta_.memory_changes.clear();
-	// One cycle: propagate from back to front to avoid persistent next-state members
-	// 1) WB uses current MEM/WB
+
 	stageWB();
 	stageMEM();
 	stageEX();
@@ -579,9 +568,9 @@ void RV5SVM::Run() {
 			  << " cpi=" << cpi_
 			  << " ipc=" << ipc_ << std::endl;
 	// Assume ideal 5x higher clock for 5-stage pipeline: period_units = 1
-	unsigned int period_units = 1; // relative time unit for pipeline
-	unsigned long long time_units = static_cast<unsigned long long>(cycle_s_) * period_units;
-	std::cout << "VM_TIME time_units=" << time_units << " period_units=" << period_units << std::endl;
+	//unsigned int period_units = 1; // relative time unit for pipeline
+	//unsigned long long time_units = static_cast<unsigned long long>(cycle_s_) * period_units;
+	//std::cout << "VM_TIME time_units=" << time_units << " period_units=" << period_units << std::endl;
 	DumpRegisters(globals::registers_dump_file_path, registers_);
 	DumpState(globals::vm_state_dump_file_path);
 }

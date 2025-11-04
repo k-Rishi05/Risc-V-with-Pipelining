@@ -16,10 +16,9 @@
 
 #include <cstdint>
 
-// Minimal 5-stage pipeline register bundles
 struct IFID {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	bool is_bubble{false}; 
 	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
@@ -28,7 +27,7 @@ struct IFID {
 
 struct IDEX {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	bool is_bubble{false}; 
 	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
@@ -53,7 +52,7 @@ struct IDEX {
 
 struct EXMEM {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	bool is_bubble{false};
 	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
@@ -75,7 +74,7 @@ struct EXMEM {
 
 struct MEMWB {
 	bool valid{false};
-	bool is_bubble{false}; // true if this is a bubble, not a real instruction
+	bool is_bubble{false};
 	enum class BubbleType : uint8_t { None=0, Stall=1, Flush=2 };
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
@@ -128,8 +127,8 @@ class RV5SVM : public VmBase {
 	void Run() override;
 	void DebugRun() override;
 	void Step() override; // one cycle
-	void Undo() override; // not implemented
-	void Redo() override; // not implemented
+	void Undo() override; 
+	void Redo() override; 
 	void Reset() override;
 
 	void PrintType() { std::cout << "rv5svm" << std::endl; }

@@ -15,7 +15,6 @@ ForwardDecision ForwardUnit::Compute(const IDEX& id_ex,
         // EX hazard: forward from EX/MEM if it is an ALU result (not a load)
         d.selA = ForwardSel::EX;
     } else if (writes_reg(mem_wb.reg_write, mem_wb.rd) && mem_wb.rd == id_ex.rs1) {
-        // MEM hazard: forward from MEM/WB if EX/MEM did not claim it
         d.selA = ForwardSel::MEM;
     }
 

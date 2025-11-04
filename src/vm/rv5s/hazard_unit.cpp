@@ -54,10 +54,8 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 		// Stall-only mode (Mode 3): conservative stalls on RAW against EX/MEM producers
 		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, id_ex.is_bubble, 2); // EX -> 2 stalls
 		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, ex_mem.is_bubble, 1); // MEM -> 1 stall
-		// No stall for WB (0-cycle)
 	} else {
 		// Forwarding mode (Mode 4): only unavoidable load-use stall
-		// If ID depends on a load currently in EX (id_ex.mem_read), stall one cycle.
 		if (id_ex.valid && id_ex.mem_read && id_ex.rd != 0 && !id_ex.is_bubble) {
 			const bool dep_rs1 = id_uses_rs1(opcode) && (rs1 == id_ex.rd);
 			const bool dep_rs2 = id_uses_rs2(opcode) && (rs2 == id_ex.rd);
@@ -65,7 +63,6 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 				d.stall_cycles = std::max(d.stall_cycles, 1);
 			}
 		}
-		// No stalls for EX/MEM ALU producers; forwarding resolves those.
 	}
 
 	return d;
