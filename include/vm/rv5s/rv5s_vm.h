@@ -48,6 +48,8 @@ struct IDEX {
 	bool mem_write{false};
 	bool branch{false};
 	alu::AluOp alu_signal{alu::AluOp::kNone};
+	// Branch resolution tracking (mode 5+: resolved in ID, not EX)
+	bool branch_resolved{false};
 };
 
 struct EXMEM {
@@ -179,6 +181,22 @@ class RV5SVM : public VmBase {
 	std::string DisassembleInstruction(uint32_t instr) const;
 
 	bool pipelineEmpty() const;
+	
+	// Helper to insert bubbles into pipeline stages
+	template<typename PipeReg>
+	void insertBubble(PipeReg& stage, typename PipeReg::BubbleType type) {
+		stage = PipeReg{};
+		stage.valid = true;
+		stage.is_bubble = true;
+		stage.bubble_type = type;
+		stage.instr = 0x00000013; // NOP (addi x0,x0,0)
+	}
+	
+	// Branch resolution helper (shared by ID and EX stages)
+	struct BranchDecision { bool taken; uint64_t target; };
+	BranchDecision resolveBranch(uint8_t opcode, uint8_t funct3, uint64_t pc, 
+	                              int32_t imm, uint64_t rs1_val, uint64_t rs2_val,
+	                              uint64_t alu_result) const;
 };
 
 #endif // RV5S_VM_H

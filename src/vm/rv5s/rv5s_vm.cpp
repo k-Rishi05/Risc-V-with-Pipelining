@@ -23,6 +23,12 @@ static inline bool is_forward_mode() {
 	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_FWD;
 }
 
+static inline bool is_bp_mode() {
+	auto mode = vm_config::config.getPipelineMode();
+	return mode == vm_config::PipelineMode::PIPE_STATIC_BP || 
+	       mode == vm_config::PipelineMode::PIPE_DYN1_BP;
+}
+
 RV5SVM::RV5SVM() : VmBase() {
 	DumpRegisters(globals::registers_dump_file_path, registers_);
 	DumpState(globals::vm_state_dump_file_path);
@@ -195,18 +201,59 @@ void RV5SVM::PrintPipelineState() {
 	std::cout << "└────────────────────────────────────────────────┘" << std::endl;
 }
 
+// Helper: resolve branch decision (shared by ID and EX)
+RV5SVM::BranchDecision RV5SVM::resolveBranch(uint8_t opcode, uint8_t funct3, uint64_t pc,
+                                               int32_t imm, uint64_t rs1_val, uint64_t rs2_val,
+                                               uint64_t alu_result) const {
+	BranchDecision decision{false, 0};
+	
+	// JAL: always taken
+	if (opcode == 0b1101111) {
+		decision.taken = true;
+		decision.target = static_cast<uint64_t>(pc + imm);
+		return decision;
+	}
+	
+	// JALR: always taken
+	if (opcode == 0b1100111) {
+		decision.taken = true;
+		decision.target = (rs1_val + static_cast<uint64_t>(imm)) & ~static_cast<uint64_t>(1);
+		return decision;
+	}
+	
+	// Conditional branches (opcode 0b1100011)
+	if (opcode == 0b1100011) {
+		bool take = false;
+		switch (funct3) {
+			case 0b000: take = (alu_result == 0); break; // BEQ: rs1-rs2==0
+			case 0b001: take = (alu_result != 0); break; // BNE
+			case 0b100: take = (alu_result != 0); break; // BLT via SLT
+			case 0b101: take = (alu_result == 0); break; // BGE via SLT
+			case 0b110: take = (alu_result != 0); break; // BLTU
+			case 0b111: take = (alu_result == 0); break; // BGEU
+			default: break;
+		}
+		// Debug: print branch decision
+		if (funct3 == 0b000) { // BEQ
+			std::cout << "BEQ: rs1=" << rs1_val << " rs2=" << rs2_val 
+			          << " alu_result=" << alu_result << " taken=" << take << std::endl;
+		}
+		decision.taken = take;
+		decision.target = static_cast<uint64_t>(pc + imm);
+		return decision;
+	}
+	
+	return decision; // Not a branch
+}
+
 
 void RV5SVM::stageIF() {
 	IFID out{};
 	
 	// If flush requested, insert bubble instead of fetching
 	if (flush_if_once_) {
-		out.valid = true;
-		out.is_bubble = true;
-		out.bubble_type = IFID::BubbleType::Flush;
-		out.instr = 0x00000013; // NOP
+		insertBubble(if_id_, IFID::BubbleType::Flush);
 		flush_if_once_ = false;
-		if_id_ = out;
 		return;
 	}
 	
@@ -230,43 +277,28 @@ void RV5SVM::stageID() {
 	// Handle control hazard flush or bubble propagation
 	if (flush_id_once_ || (if_id_.valid && if_id_.is_bubble)) {
 		// Insert bubble into ID/EX (stageIF will handle IF/ID flush if needed)
-		IDEX bubble{};
-		bubble.valid = true;
-		bubble.is_bubble = true;
-		bubble.bubble_type = flush_id_once_ ? IDEX::BubbleType::Flush : if_id_.bubble_type == IFID::BubbleType::Flush ? IDEX::BubbleType::Flush : IDEX::BubbleType::Stall;
-		bubble.instr = 0x00000013; // NOP
-		id_ex_ = bubble;
+		auto bubble_type = flush_id_once_ ? IDEX::BubbleType::Flush : 
+		                   (if_id_.bubble_type == IFID::BubbleType::Flush ? IDEX::BubbleType::Flush : IDEX::BubbleType::Stall);
+		insertBubble(id_ex_, bubble_type);
 		flush_id_once_ = false;
 		return;
 	}
 
-	// Hazard detection: compute stalls (Mode 3 and 4)
+	// Hazard detection: compute stalls (Mode 3, 4, 5, 6+)
 	stall_if_id_ = false;
-	if (is_stall_mode() || is_forward_mode()) {
+	if (is_stall_mode() || is_forward_mode() || is_bp_mode()) {
 		if (stall_counter_ > 0) {
 			stall_if_id_ = true;
-			// Insert NOP bubble (valid=true, is_bubble=true)
-			IDEX bubble{};
-			bubble.valid = true;
-			bubble.is_bubble = true;
-			bubble.bubble_type = IDEX::BubbleType::Stall;
-			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
-			id_ex_ = bubble;
+			insertBubble(id_ex_, IDEX::BubbleType::Stall);
 			stall_counter_--;
 			return;
 		}
 
-		HazardDecision h = hazard_.Compute(if_id_, current_delta_.idex, current_delta_.exmem, current_delta_.memwb, /*forwarding_enabled=*/is_forward_mode());
+		HazardDecision h = hazard_.Compute(if_id_, current_delta_.idex, current_delta_.exmem, current_delta_.memwb, /*forwarding_enabled=*/(is_forward_mode() || is_bp_mode()));
 		if (h.stall_cycles > 0) {
 			stall_counter_ = h.stall_cycles - 1; 
 			stall_if_id_ = true;
-			// Insert NOP bubble (valid=true, is_bubble=true)
-			IDEX bubble{};
-			bubble.valid = true;
-			bubble.is_bubble = true;
-			bubble.bubble_type = IDEX::BubbleType::Stall;
-			bubble.instr = 0x00000013; // NOP instruction (addi x0, x0, 0)
-			id_ex_ = bubble;
+			insertBubble(id_ex_, IDEX::BubbleType::Stall);
 			return;
 		}
 	}
@@ -302,6 +334,67 @@ void RV5SVM::stageID() {
 	out.mem_write = control_.GetMemWrite();
 	out.branch = control_.GetBranch();
 	out.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
+	
+	// Mode 5+: Resolve branches in ID stage (early resolution with forwarding)
+	// Note: HazardUnit already handles load-use stalls, so we can safely forward here
+	if (is_bp_mode()) {
+		bool is_control_flow = (opcode == 0b1101111) || (opcode == 0b1100111) || (opcode == 0b1100011);
+		if (is_control_flow) {
+			// Create temp IDEX to use existing ForwardUnit
+			IDEX temp_idex = out;
+			
+			// Use ForwardUnit to compute forwarding decisions
+			const auto fwd = forward_.Compute(temp_idex, ex_mem_, mem_wb_);
+			
+			// Apply forwarding to get correct operand values
+			uint64_t rs1_val = out.rs1_val;
+			uint64_t rs2_val = out.rs2_val;
+			
+			// Forward rs1
+			switch (fwd.selA) {
+				case ForwardSel::EX:
+					rs1_val = ex_mem_.alu_result;
+					break;
+				case ForwardSel::MEM:
+					rs1_val = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+					break;
+				case ForwardSel::REG:
+				default:
+					break;
+			}
+			
+			// Forward rs2
+			switch (fwd.selB) {
+				case ForwardSel::EX:
+					rs2_val = ex_mem_.alu_result;
+					break;
+				case ForwardSel::MEM:
+					rs2_val = mem_wb_.mem_to_reg ? mem_wb_.mem_data : mem_wb_.alu_result;
+					break;
+				case ForwardSel::REG:
+				default:
+					break;
+			}
+			
+			// Compute branch decision with forwarded values
+			uint64_t alu_res = 0;
+			if (opcode == 0b1100011) { // Conditional branch
+				auto [r, of] = alu_.execute(out.alu_signal, rs1_val, rs2_val);
+				alu_res = static_cast<uint64_t>(r);
+			}
+			
+			auto decision = resolveBranch(opcode, funct3, if_id_.pc, imm, 
+			                               rs1_val, rs2_val, alu_res);
+			
+			if (decision.taken) {
+				program_counter_ = decision.target;
+				flush_if_once_ = true; // Flush IF only (saves 1 cycle vs EX-resolve)
+			}
+			
+			out.branch_resolved = true; // Mark as resolved
+		}
+	}
+	
 	// Commit
 	id_ex_ = out;
 }
@@ -314,7 +407,7 @@ void RV5SVM::stageEX() {
 	uint64_t srcB_reg = id_ex_.rs2_val;
 	uint64_t store_data = id_ex_.rs2_val;
 
-	if (is_forward_mode()) {
+	if (is_forward_mode() || is_bp_mode()) {
 		const auto fwd = forward_.Compute(id_ex_, current_delta_.exmem, current_delta_.memwb);
 
 		// Resolve rs1
@@ -385,22 +478,23 @@ void RV5SVM::stageEX() {
 		}
 	}
 
-	// Branch decision
+	// Branch decision (skip if already resolved in ID for mode 5+)
 	bool take = false;
-	if (id_ex_.opcode == 0b1101111) { // JAL
-		take = true;
-	} else if (id_ex_.opcode == 0b1100111) { // JALR
-		take = true;
-	} else if (id_ex_.branch) {
-		switch (id_ex_.funct3) {
-			case 0b000: take = (res == 0); break; // BEQ: rs1-rs2==0
-			case 0b001: take = (res != 0); break; // BNE
-			case 0b100: take = (res != 0); break; // BLT via SLT
-			case 0b101: take = (res == 0); break; // BGE via SLT
-			case 0b110: take = (res != 0); break; // BLTU
-			case 0b111: take = (res == 0); break; // BGEU
-			default: break;
-		}
+	uint64_t target = 0;
+	if (!id_ex_.branch_resolved) {
+		// Use resolveBranch helper for consistency
+		// resolveBranch(opcode, funct3, pc, imm, rs1_val, rs2_val, alu_result)
+		auto dec = resolveBranch(
+			id_ex_.opcode,
+			id_ex_.funct3,
+			id_ex_.pc,
+			id_ex_.imm,
+			srcA,
+			srcB_reg,
+			res
+		);
+		take = dec.taken;
+		target = dec.target;
 	}
 
 	// Fill EX/MEM
@@ -419,14 +513,21 @@ void RV5SVM::stageEX() {
 	out.mem_write = id_ex_.mem_write;
 	out.alu_result = res;
 	out.branch_taken = take;
-	if (id_ex_.opcode == 0b1100111) { // JALR target uses forwarded rs1
-		uint64_t target = (srcA + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
+	// Use target from resolveBranch if we computed it in EX; otherwise compute here for compatibility
+	if (!id_ex_.branch_resolved) {
 		out.branch_target = target;
 	} else {
-		out.branch_target = static_cast<uint64_t>(id_ex_.pc + id_ex_.imm);
+		// Branch was already resolved in ID, target should be in id_ex_ or recompute
+		if (id_ex_.opcode == 0b1100111) { // JALR target uses forwarded rs1
+			uint64_t jalr_target = (srcA + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
+			out.branch_target = jalr_target;
+		} else {
+			out.branch_target = static_cast<uint64_t>(id_ex_.pc + id_ex_.imm);
+		}
 	}
 
-	if (out.branch_taken) {
+	// Apply flush logic only if branch was NOT already resolved in ID
+	if (!id_ex_.branch_resolved && out.branch_taken) {
 		program_counter_ = out.branch_target;
 		// Flush IF and ID stages on next cycle 
 		flush_if_once_ = true;
@@ -611,7 +712,9 @@ void RV5SVM::Undo() {
     }
 
     redo_stack_.push(last);
+	PrintPipelineState();
     std::cout << "VM_UNDO_COMPLETED" << std::endl;
+
 }
 
 void RV5SVM::Redo() {
@@ -644,6 +747,7 @@ void RV5SVM::Redo() {
     }
 
     undo_stack_.push(next);
+	PrintPipelineState();
     std::cout << "VM_REDO_COMPLETED" << std::endl;
 }
 
