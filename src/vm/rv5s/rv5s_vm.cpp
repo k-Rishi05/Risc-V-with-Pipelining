@@ -9,6 +9,7 @@
 #include "globals.h"
 #include "common/instructions.h"
 #include "config.h"
+#include "vm/rv5s/predictors/one_bit_btb.h"
 #include <iomanip>
 #include <sstream>
 
@@ -23,6 +24,7 @@ static inline bool is_forward_mode() {
 	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_FWD;
 }
 
+// Predictor presence decides behavior; no need for per-mode helpers here
 static inline bool is_bp_mode() {
 	auto mode = vm_config::config.getPipelineMode();
 	return mode == vm_config::PipelineMode::PIPE_STATIC_BP || 
@@ -50,6 +52,12 @@ void RV5SVM::Reset() {
 	control_.Reset();
 	if_id_ = {}; id_ex_ = {}; ex_mem_ = {}; mem_wb_ = {};
 	breakpoints_.clear();  // Clear breakpoints on reset
+	// Initialize predictor only for Mode 6 (dynamic 1-bit)
+	predictor_.reset();
+	if (vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+		predictor_ = std::make_unique<OneBitBTB>(32);
+		predictor_->reset();
+	}
 }
 
 bool RV5SVM::pipelineEmpty() const {
@@ -258,12 +266,29 @@ void RV5SVM::stageIF() {
 	}
 	
 	if (program_counter_ < program_size_) {
-		out.instr = memory_controller_.ReadWord(program_counter_);
-		out.pc = program_counter_;
+		uint64_t fetch_pc = program_counter_;
+		out.instr = memory_controller_.ReadWord(fetch_pc);
+		out.pc = fetch_pc;
 		out.valid = true;
-		// If we must stall IF/ID, do not advance PC; else advance sequentially
-		if (!stall_if_id_) {
-			UpdateProgramCounter(4);
+
+	// Use predictor only in Mode 6
+	if (predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+			auto pr = predictor_->predict(fetch_pc, out.instr);
+			out.has_prediction = pr.valid;
+			out.predicted_taken = pr.taken;
+			out.predicted_target = pr.target;
+			if (!stall_if_id_) {
+				if (pr.valid && pr.taken) {
+					program_counter_ = pr.target;
+				} else {
+					UpdateProgramCounter(4);
+				}
+			}
+		} else {
+			// No predictor: sequential fetch
+			if (!stall_if_id_) {
+				UpdateProgramCounter(4);
+			}
 		}
 	}
 	
@@ -335,9 +360,10 @@ void RV5SVM::stageID() {
 	out.branch = control_.GetBranch();
 	out.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
 	
-	// Mode 5+: Resolve branches in ID stage (early resolution with forwarding)
+	// Mode 5/6: Resolve branches in ID stage (early resolution with forwarding)
 	// Note: HazardUnit already handles load-use stalls, so we can safely forward here
-	if (is_bp_mode()) {
+	auto mode = vm_config::config.getPipelineMode();
+	if (mode == vm_config::PipelineMode::PIPE_STATIC_BP || mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
 		bool is_control_flow = (opcode == 0b1101111) || (opcode == 0b1100111) || (opcode == 0b1100011);
 		if (is_control_flow) {
 			// Create temp IDEX to use existing ForwardUnit
@@ -385,10 +411,43 @@ void RV5SVM::stageID() {
 			
 			auto decision = resolveBranch(opcode, funct3, if_id_.pc, imm, 
 			                               rs1_val, rs2_val, alu_res);
-			
-			if (decision.taken) {
-				program_counter_ = decision.target;
-				flush_if_once_ = true; // Flush IF only (saves 1 cycle vs EX-resolve)
+
+			if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
+				// Mode 6: compare with prediction and update predictor
+				bool pred_present = if_id_.has_prediction;
+				bool pred_taken = pred_present ? if_id_.predicted_taken : false;
+				uint64_t pred_target = pred_present ? if_id_.predicted_target : (if_id_.pc + 4);
+				bool mispred = false;
+				if (decision.taken != pred_taken) {
+					mispred = true;
+				} else if (decision.taken && pred_taken && (decision.target != pred_target)) {
+					mispred = true;
+				}
+
+				// Only flush and redirect PC on misprediction
+				if (mispred) {
+					// Correct the PC to the actual target
+					if (decision.taken) {
+						program_counter_ = decision.target;
+					} else {
+						// Prediction was taken but actual is not-taken; go sequential
+						program_counter_ = if_id_.pc + 4;
+					}
+					flush_if_once_ = true;
+					mispredictions_++;
+				}
+				// If prediction is correct, PC is already at the right place (set in IF stage)
+				// and the fetched instruction is correct, so no flush needed
+				
+				if (predictor_) {
+					predictor_->update(if_id_.pc, true, decision.taken, decision.target);
+				}
+			} else {
+				// Mode 5: early resolve without predictor; simple flush on taken
+				if (decision.taken) {
+					program_counter_ = decision.target;
+					flush_if_once_ = true;
+				}
 			}
 			
 			out.branch_resolved = true; // Mark as resolved
@@ -619,6 +678,12 @@ void RV5SVM::Step() {
 	current_delta_.register_changes.clear();
 	current_delta_.memory_changes.clear();
 
+	// Lazy-init predictor if Mode 6 is enabled and predictor is not yet created
+	if (!predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+		predictor_ = std::make_unique<OneBitBTB>(32);
+		predictor_->reset();
+	}
+
 	stageWB();
 	stageMEM();
 	stageEX();
@@ -645,6 +710,12 @@ void RV5SVM::Step() {
 	
 	// Display pipeline state after each step
 	PrintPipelineState();
+
+	// Dump BTB each step for Mode 6 (dynamic 1-bit predictor)
+	if (predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+		std::cout << "--- BTB Dump ---" << std::endl;
+		predictor_->debugDump(std::cout);
+	}
 }
 
 void RV5SVM::Run() {
@@ -750,4 +821,6 @@ void RV5SVM::Redo() {
 	PrintPipelineState();
     std::cout << "VM_REDO_COMPLETED" << std::endl;
 }
+
+// Predictor implementation instantiated directly for Mode 6 (OneBitBTB)
 

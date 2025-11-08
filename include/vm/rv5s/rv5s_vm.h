@@ -10,6 +10,7 @@
 #include "vm/rv5s/rv5s_control_unit.h"
 #include "vm/rv5s/hazard_unit.h"
 #include "vm/rv5s/forward_unit.h"
+#include "vm/rv5s/predictor.h"
 #include <iostream>
 #include <vector>
 #include <stack>
@@ -23,6 +24,10 @@ struct IFID {
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint64_t pc{0};
+	// Prediction metadata (used only in dynamic predictor mode)
+	bool has_prediction{false};
+	bool predicted_taken{false};
+	uint64_t predicted_target{0};
 };
 
 struct IDEX {
@@ -40,6 +45,7 @@ struct IDEX {
 	int32_t imm{0};
 	uint64_t rs1_val{0};
 	uint64_t rs2_val{0};
+	bool branch_resolved{false}; // early branch resolution (ID stage) handled
 	// control
 	bool alu_src{false};
 	bool mem_to_reg{false};
@@ -48,8 +54,6 @@ struct IDEX {
 	bool mem_write{false};
 	bool branch{false};
 	alu::AluOp alu_signal{alu::AluOp::kNone};
-	// Branch resolution tracking (mode 5+: resolved in ID, not EX)
-	bool branch_resolved{false};
 };
 
 struct EXMEM {
@@ -143,8 +147,7 @@ class RV5SVM : public VmBase {
 	// Feature flags (reserved for future use)
 	bool hazard_detection_enabled_{false};
 	bool forwarding_enabled_{false};
-	enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2 };
-	PredictorKind predictor_{PredictorKind::None};
+	// predictor kind removed; use vm_config::PipelineMode to select
 
 	// Optional: control hazard resolution stage (unused in basic pipeline)
 	enum class BranchResolveStage : uint8_t { EX=0, ID=1 };
@@ -155,6 +158,9 @@ class RV5SVM : public VmBase {
 	IDEX id_ex_{};
 	EXMEM ex_mem_{};
 	MEMWB mem_wb_{};
+
+	// ---------------- Branch Prediction (Mode 6) ----------------
+	std::unique_ptr<Predictor> predictor_{};
 
 	// simple stats
 	uint64_t stall_cycles_{0};

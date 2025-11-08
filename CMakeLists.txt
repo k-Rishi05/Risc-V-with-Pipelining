@@ -17,6 +17,8 @@ set(INCLUDE_DIR "include")
 set(TEST_DIR "test")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS "${SRC_DIR}/*.cpp")
+# Exclude obsolete predictor_factory.cpp (deleted)
+list(FILTER SRC_FILES EXCLUDE REGEX ".*/vm/rv5s/predictor_factory.cpp$")
 file(GLOB_RECURSE TEST_FILES "${TEST_DIR}/*.cpp")
 
 add_executable(${PROJECT_NAME} ${SRC_FILES})
