@@ -1,20 +1,20 @@
-#include "vm/rv5s/predictors/one_bit_btb.h"
+#include "vm/rv5s/predictors/perceptron_btb.h"
 #include <iostream>
 
-OneBitBTB::OneBitBTB(size_t entries) {
+PerceptronBTB::PerceptronBTB(size_t entries) {
   // Create modular BHT and BTB components
-  bht_ = std::make_unique<OneBitBHT>(entries);
+  bht_ = std::make_unique<PerceptronBHT>(entries);
   btb_ = std::make_unique<DirectMappedBTB>(entries);
 }
 
-PredictResult OneBitBTB::predict(uint64_t pc, uint32_t /*instr*/) {
+PredictResult PerceptronBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   PredictResult r;
   
   // Query BTB for target
   auto btb_result = btb_->lookup(pc);
   
   if (btb_result.hit) {
-    // BTB hit: query BHT for direction
+    // BTB hit: query perceptron BHT for direction
     r.valid = true;
     r.taken = bht_->predict(pc);
     r.target = btb_result.target;
@@ -28,7 +28,7 @@ PredictResult OneBitBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   return r;
 }
 
-void OneBitBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
+void PerceptronBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
   if (!is_branch) return;
   
   // Update both BHT (direction) and BTB (target)
@@ -36,13 +36,13 @@ void OneBitBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target)
   btb_->update(pc, target);
 }
 
-void OneBitBTB::reset() {
+void PerceptronBTB::reset() {
   bht_->reset();
   btb_->reset();
 }
 
-void OneBitBTB::debugDump(std::ostream& os) const {
-  os << "=== OneBitBTB Predictor ===\n";
+void PerceptronBTB::debugDump(std::ostream& os) const {
+  os << "=== PerceptronBTB Predictor ===\n";
   bht_->debugDump(os);
   btb_->debugDump(os);
 }

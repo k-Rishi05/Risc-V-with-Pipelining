@@ -1,14 +1,14 @@
 {
-    "program_counter": "0x0000001c",
+    "program_counter": "0x000000c4",
     "current_line": 0,
     "current_instruction": "0x00000000",
     "disassembly_line_number": 0,
-    "cycle_count": 19,
-    "instructions_retired": 13,
-    "cpi": 1.46154,
-    "ipc": 0.684211,
+    "cycle_count": 9163,
+    "instructions_retired": 6645,
+    "cpi": 1.37893,
+    "ipc": 0.725199,
     "stall_cycles": 0,
     "branch_mispredictions": 0,
     "breakpoints": [],
-    "output_status": "VM_EXITED"
+    "output_status": "VM_PROGRAM_END"
 }

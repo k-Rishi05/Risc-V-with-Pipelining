@@ -1,4 +1,4 @@
-        addi x1, x0, 3        # x1 = loop counter = 5
+        addi x1, x0, 4        # x1 = loop counter = 5
         addi x2, x0, 0        # x2 = accumulator = 0
 
 loop:   addi x2, x2, 1        # x2 = x2 + 1

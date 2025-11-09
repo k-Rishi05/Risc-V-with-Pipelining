@@ -3,8 +3,8 @@
 #include "vm/rv5s/predictors/static_predictor.h"
 #include "config.h"
 
-std::unique_ptr<Predictor> makePredictor(vm_config::PredictorKind kind) {
-  using vm_config::PredictorKind;
+std::unique_ptr<Predictor> makePredictor(vm_config::VmConfig::PredictorKind kind) {
+  using PredictorKind = vm_config::VmConfig::PredictorKind;
   switch (kind) {
     case PredictorKind::Static:
       return std::make_unique<StaticPredictor>();

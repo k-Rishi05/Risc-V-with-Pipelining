@@ -27,7 +27,9 @@ enum class PipelineMode : uint8_t {
   PIPE_STALL = 3,          // Mode 3
   PIPE_FWD = 4,            // Mode 4
   PIPE_STATIC_BP = 5,      // Mode 5
-  PIPE_DYN1_BP = 6         // Mode 6
+  PIPE_DYN1_BP = 6,        // Mode 6
+  PIPE_DYN2_BP = 7,        // Mode 7
+  PIPE_PERCEPTRON_BP = 8   // Mode 8
 };
 
 // Branch resolution stage control (kept simple)
@@ -54,7 +56,7 @@ struct VmConfig {
   // Feature flags derived from pipeline_mode; can be overridden via config
   bool hazard_detection_enabled = false;
   bool forwarding_enabled = false;
-  enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2 };
+  enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2, TwoBit=3, Perceptron=4 };
   PredictorKind predictor = PredictorKind::None;
   BranchResolveStage branch_resolve_stage = BranchResolveStage::EX; // optional tuning
 
@@ -97,6 +99,18 @@ struct VmConfig {
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::OneBit;
+        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
+        break;
+      case PipelineMode::PIPE_DYN2_BP:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::TwoBit;
+        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
+        break;
+      case PipelineMode::PIPE_PERCEPTRON_BP:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::Perceptron;
         branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
     }
@@ -197,6 +211,8 @@ struct VmConfig {
         else if (value == "4" || value == "pipe_fwd") setPipelineMode(PipelineMode::PIPE_FWD);
         else if (value == "5" || value == "pipe_static_bp") setPipelineMode(PipelineMode::PIPE_STATIC_BP);
         else if (value == "6" || value == "pipe_dyn1_bp") setPipelineMode(PipelineMode::PIPE_DYN1_BP);
+        else if (value == "7" || value == "pipe_dyn2_bp") setPipelineMode(PipelineMode::PIPE_DYN2_BP);
+        else if (value == "8" || value == "pipe_perceptron_bp") setPipelineMode(PipelineMode::PIPE_PERCEPTRON_BP);
         else throw std::invalid_argument("Unknown pipeline_mode: " + value);
       } else if (key == "processor_type") {
         // Deprecated: map to pipeline_mode for backward compatibility

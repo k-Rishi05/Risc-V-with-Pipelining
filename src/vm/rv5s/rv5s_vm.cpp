@@ -10,6 +10,8 @@
 #include "common/instructions.h"
 #include "config.h"
 #include "vm/rv5s/predictors/one_bit_btb.h"
+#include "vm/rv5s/predictors/two_bit_btb.h"
+#include "vm/rv5s/predictors/perceptron_btb.h"
 #include <iomanip>
 #include <sstream>
 
@@ -28,7 +30,17 @@ static inline bool is_forward_mode() {
 static inline bool is_bp_mode() {
 	auto mode = vm_config::config.getPipelineMode();
 	return mode == vm_config::PipelineMode::PIPE_STATIC_BP || 
-	       mode == vm_config::PipelineMode::PIPE_DYN1_BP;
+	       mode == vm_config::PipelineMode::PIPE_DYN1_BP ||
+	       mode == vm_config::PipelineMode::PIPE_DYN2_BP ||
+	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP;
+}
+
+// Helper to check if we're in any dynamic prediction mode (mode 6, 7, or 8)
+static inline bool is_dynamic_bp_mode() {
+	auto mode = vm_config::config.getPipelineMode();
+	return mode == vm_config::PipelineMode::PIPE_DYN1_BP ||
+	       mode == vm_config::PipelineMode::PIPE_DYN2_BP ||
+	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP;
 }
 
 RV5SVM::RV5SVM() : VmBase() {
@@ -52,10 +64,18 @@ void RV5SVM::Reset() {
 	control_.Reset();
 	if_id_ = {}; id_ex_ = {}; ex_mem_ = {}; mem_wb_ = {};
 	breakpoints_.clear();  // Clear breakpoints on reset
-	// Initialize predictor only for Mode 6 (dynamic 1-bit)
+	
+	// Initialize predictor based on mode (reuse BTB infrastructure)
 	predictor_.reset();
-	if (vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+	auto mode = vm_config::config.getPipelineMode();
+	if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
 		predictor_ = std::make_unique<OneBitBTB>(32);
+		predictor_->reset();
+	} else if (mode == vm_config::PipelineMode::PIPE_DYN2_BP) {
+		predictor_ = std::make_unique<TwoBitBTB>(32);
+		predictor_->reset();
+	} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
+		predictor_ = std::make_unique<PerceptronBTB>(141);  // 141 perceptrons (optimal for 4KB)
 		predictor_->reset();
 	}
 }
@@ -271,8 +291,8 @@ void RV5SVM::stageIF() {
 		out.pc = fetch_pc;
 		out.valid = true;
 
-	// Use predictor only in Mode 6
-	if (predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
+		// Use predictor in any dynamic BP mode (mode 6 or 7)
+		if (predictor_ && is_dynamic_bp_mode()) {
 			auto pr = predictor_->predict(fetch_pc, out.instr);
 			out.has_prediction = pr.valid;
 			out.predicted_taken = pr.taken;
@@ -360,10 +380,10 @@ void RV5SVM::stageID() {
 	out.branch = control_.GetBranch();
 	out.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
 	
-	// Mode 5/6: Resolve branches in ID stage (early resolution with forwarding)
+	// Mode 5/6/7: Resolve branches in ID stage (early resolution with forwarding)
 	// Note: HazardUnit already handles load-use stalls, so we can safely forward here
 	auto mode = vm_config::config.getPipelineMode();
-	if (mode == vm_config::PipelineMode::PIPE_STATIC_BP || mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
+	if (is_bp_mode()) {  // This covers modes 5, 6, and 7
 		bool is_control_flow = (opcode == 0b1101111) || (opcode == 0b1100111) || (opcode == 0b1100011);
 		if (is_control_flow) {
 			// Create temp IDEX to use existing ForwardUnit
@@ -412,8 +432,8 @@ void RV5SVM::stageID() {
 			auto decision = resolveBranch(opcode, funct3, if_id_.pc, imm, 
 			                               rs1_val, rs2_val, alu_res);
 
-			if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
-				// Mode 6: compare with prediction and update predictor
+			if (is_dynamic_bp_mode()) {
+				// Mode 6/7: compare with prediction and update predictor
 				bool pred_present = if_id_.has_prediction;
 				bool pred_taken = pred_present ? if_id_.predicted_taken : false;
 				uint64_t pred_target = pred_present ? if_id_.predicted_target : (if_id_.pc + 4);
@@ -678,10 +698,19 @@ void RV5SVM::Step() {
 	current_delta_.register_changes.clear();
 	current_delta_.memory_changes.clear();
 
-	// Lazy-init predictor if Mode 6 is enabled and predictor is not yet created
-	if (!predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
-		predictor_ = std::make_unique<OneBitBTB>(32);
-		predictor_->reset();
+	// Lazy-init predictor if dynamic BP mode is enabled and predictor is not yet created
+	if (!predictor_ && is_dynamic_bp_mode()) {
+		auto mode = vm_config::config.getPipelineMode();
+		if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
+			predictor_ = std::make_unique<OneBitBTB>(32);
+		} else if (mode == vm_config::PipelineMode::PIPE_DYN2_BP) {
+			predictor_ = std::make_unique<TwoBitBTB>(32);
+		} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
+			predictor_ = std::make_unique<PerceptronBTB>(141);
+		}
+		if (predictor_) {
+			predictor_->reset();
+		}
 	}
 
 	stageWB();
@@ -711,9 +740,16 @@ void RV5SVM::Step() {
 	// Display pipeline state after each step
 	PrintPipelineState();
 
-	// Dump BTB each step for Mode 6 (dynamic 1-bit predictor)
-	if (predictor_ && vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_DYN1_BP) {
-		std::cout << "--- BTB Dump ---" << std::endl;
+	// Dump predictor state each step for dynamic BP modes (6, 7, and 8)
+	if (predictor_ && is_dynamic_bp_mode()) {
+		auto mode = vm_config::config.getPipelineMode();
+		if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
+			std::cout << "--- 1-Bit Predictor Dump ---" << std::endl;
+		} else if (mode == vm_config::PipelineMode::PIPE_DYN2_BP) {
+			std::cout << "--- 2-Bit Predictor Dump ---" << std::endl;
+		} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
+			std::cout << "--- Perceptron Predictor Dump ---" << std::endl;
+		}
 		predictor_->debugDump(std::cout);
 	}
 }

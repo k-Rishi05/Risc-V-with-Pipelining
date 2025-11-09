@@ -1,13 +1,13 @@
-#include "vm/rv5s/predictors/one_bit_btb.h"
+#include "vm/rv5s/predictors/two_bit_btb.h"
 #include <iostream>
 
-OneBitBTB::OneBitBTB(size_t entries) {
-  // Create modular BHT and BTB components
-  bht_ = std::make_unique<OneBitBHT>(entries);
+TwoBitBTB::TwoBitBTB(size_t entries) {
+  // Create modular BHT and BTB components (reusing BTB infrastructure)
+  bht_ = std::make_unique<TwoBitBHT>(entries);
   btb_ = std::make_unique<DirectMappedBTB>(entries);
 }
 
-PredictResult OneBitBTB::predict(uint64_t pc, uint32_t /*instr*/) {
+PredictResult TwoBitBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   PredictResult r;
   
   // Query BTB for target
@@ -28,7 +28,7 @@ PredictResult OneBitBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   return r;
 }
 
-void OneBitBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
+void TwoBitBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
   if (!is_branch) return;
   
   // Update both BHT (direction) and BTB (target)
@@ -36,13 +36,13 @@ void OneBitBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target)
   btb_->update(pc, target);
 }
 
-void OneBitBTB::reset() {
+void TwoBitBTB::reset() {
   bht_->reset();
   btb_->reset();
 }
 
-void OneBitBTB::debugDump(std::ostream& os) const {
-  os << "=== OneBitBTB Predictor ===\n";
+void TwoBitBTB::debugDump(std::ostream& os) const {
+  os << "=== TwoBitBTB Predictor ===\n";
   bht_->debugDump(os);
   btb_->debugDump(os);
 }

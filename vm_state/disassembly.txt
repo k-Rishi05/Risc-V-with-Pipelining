@@ -1,10 +1,82 @@
-0000000000000000 <start>:
-   0: 00300093             addi x1, x0, 3
-   4: 00000113             addi x2, x0, 0
+0000000000000000 <main>:
+   0: 06400293             addi x5, x0, 100
+   4: 00000313             addi x6, x0, 0
+   8: 00000393             addi x7, x0, 0
+   c: 00100e13             addi x28, x0, 1
+  10: 00000e93             addi x29, x0, 0
+  14: 0b100f13             addi x30, x0, 177
 
-0000000000000008 <loop>:
-   8: 00110113             addi x2, x2, 1
-   c: fff08093             addi x1, x1, -1
-  10: fe009ce3             bne x1, x0, -8 <loop>
-  14: 00100193             addi x3, x0, 1
-  18: 00200213             addi x4, x0, 2
+0000000000000018 <loop_top>:
+  18: 0013c393             xori x7, x7, 1
+  1c: 00038663             beq x7, x0, 12 <ALT_NOT_TAKEN>
+
+0000000000000020 <ALT_TAKEN>:
+  20: 00000013             addi x0, x0, 0
+  24: 0080006f             jal x0, 8 <ALT_CONT>
+
+0000000000000028 <ALT_NOT_TAKEN>:
+  28: 00000013             addi x0, x0, 0
+
+000000000000002c <ALT_CONT>:
+  2c: 001e7493             andi x9, x28, 1
+  30: 00048663             beq x9, x0, 12 <LFSR_NOT>
+
+0000000000000034 <LFSR_TAKEN>:
+  34: 00000013             addi x0, x0, 0
+  38: 0080006f             jal x0, 8 <LFSR_CONT>
+
+000000000000003c <LFSR_NOT>:
+  3c: 00000013             addi x0, x0, 0
+
+0000000000000040 <LFSR_CONT>:
+  40: 001e1513             slli x10, x28, 1
+  44: 00fe5593             srli x11, x28, 15
+  48: 0015f593             andi x11, x11, 1
+  4c: 00058463             beq x11, x0, 8 <LFSR_NOXOR>
+  50: 01e54533             xor x10, x10, x30
+
+0000000000000054 <LFSR_NOXOR>:
+  54: 00050e33             add x28, x10, x0
+  58: 00030433             add x8, x6, x0
+  5c: 00000913             addi x18, x0, 0
+  60: 00800993             addi x19, x0, 8
+
+0000000000000064 <POPCOUNT_LOOP>:
+  64: 00147493             andi x9, x8, 1
+  68: 00990933             add x18, x18, x9
+  6c: 00145413             srli x8, x8, 1
+  70: fff98993             addi x19, x19, -1
+  74: fe0998e3             bne x19, x0, -16 <POPCOUNT_LOOP>
+  78: 00500a13             addi x20, x0, 5
+  7c: 01494663             blt x18, x20, 12 <MAJ_NOT_TAKEN>
+
+0000000000000080 <MAJ_TAKEN>:
+  80: 00100a93             addi x21, x0, 1
+  84: 0080006f             jal x0, 8 <MAJ_UPDATE>
+
+0000000000000088 <MAJ_NOT_TAKEN>:
+  88: 00000a93             addi x21, x0, 0
+
+000000000000008c <MAJ_UPDATE>:
+  8c: 00131313             slli x6, x6, 1
+  90: 0ff37313             andi x6, x6, 255
+  94: 01536333             or x6, x6, x21
+  98: 000a8663             beq x21, x0, 12 <MAJ_BRANCH_NOT_TAKEN>
+
+000000000000009c <MAJ_BRANCH_TAKEN>:
+  9c: 00000013             addi x0, x0, 0
+  a0: 0080006f             jal x0, 8 <MAJ_BRANCH_CONT>
+
+00000000000000a4 <MAJ_BRANCH_NOT_TAKEN>:
+  a4: 00000013             addi x0, x0, 0
+
+00000000000000a8 <MAJ_BRANCH_CONT>:
+  a8: 001e8e93             addi x29, x29, 1
+  ac: fff28293             addi x5, x5, -1
+  b0: f60294e3             bne x5, x0, -152 <loop_top>
+
+00000000000000b4 <halt>:
+  b4: 000e8533             add x10, x29, x0
+  b8: 00000013             addi x0, x0, 0
+  bc: 00000013             addi x0, x0, 0
+  c0: 00000013             addi x0, x0, 0

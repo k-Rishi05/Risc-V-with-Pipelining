@@ -1,0 +1,2 @@
+c e m 7
+l examples/1bit.s
