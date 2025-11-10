@@ -2,7 +2,6 @@
 #include <iostream>
 
 TwoBitBTB::TwoBitBTB(size_t entries) {
-  // Create modular BHT and BTB components (reusing BTB infrastructure)
   bht_ = std::make_unique<TwoBitBHT>(entries);
   btb_ = std::make_unique<DirectMappedBTB>(entries);
 }

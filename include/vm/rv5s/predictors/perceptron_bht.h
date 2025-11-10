@@ -30,8 +30,7 @@ public:
 
 /**
  * @brief Perceptron-based Branch History Table
- * Uses neural network approach with perceptrons for branch prediction
- * 
+ * below is from the paper
  * Hardware budget: 4KB
  * - HISTORY_LENGTH (h): 28
  * - NUM_PERCEPTRONS (N): 141
@@ -86,14 +85,9 @@ private:
     return (pc >> 2) % NUM_PERCEPTRONS; 
   }
   
-  /**
-   * @brief Get current GHR as bipolar vector {-1, 1}
-   * @return Vector where [0] = +1 (bias), [1..h] = history bits as ±1
-   */
+  // Get current GHR as bipolar vector {-1, 1}
   std::vector<int> getBipolarHistory() const;
   
-  /**
-   * @brief Update GHR with new branch outcome (speculative update)
-   */
+  // Update GHR with new branch outcome (speculative update)
   void updateGHR(bool taken);
 };

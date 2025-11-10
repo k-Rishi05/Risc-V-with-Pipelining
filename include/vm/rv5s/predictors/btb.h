@@ -6,10 +6,8 @@
 #include <vector>
 #include <iosfwd>
 
-/**
- * @brief Branch Target Buffer (BTB) - caches branch target addresses
- * Stores PC → target mappings for branches
- */
+
+//Branch Target Buffer (BTB) - caches branch target addresses
 class BTB {
 public:
   struct LookupResult {
@@ -18,36 +16,14 @@ public:
   };
   
   virtual ~BTB() = default;
-  
-  /**
-   * @brief Lookup target address for given PC
-   * @param pc Program counter to lookup
-   * @return LookupResult with hit flag and target if found
-   */
   virtual LookupResult lookup(uint64_t pc) = 0;
   
-  /**
-   * @brief Update BTB with branch PC and its target
-   * @param pc Program counter of the branch
-   * @param target Target address of the branch
-   */
+  // Update BTB with branch PC and its target
   virtual void update(uint64_t pc, uint64_t target) = 0;
-  
-  /**
-   * @brief Reset BTB state
-   */
   virtual void reset() = 0;
-  
-  /**
-   * @brief Debug dump of internal state
-   */
   virtual void debugDump(std::ostream& /*os*/) const {}
 };
 
-/**
- * @brief Direct-mapped BTB implementation
- * Simple indexed table with tag matching
- */
 class DirectMappedBTB : public BTB {
 public:
   explicit DirectMappedBTB(size_t entries = 128);

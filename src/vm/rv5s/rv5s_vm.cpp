@@ -446,19 +446,14 @@ void RV5SVM::stageID() {
 
 				// Only flush and redirect PC on misprediction
 				if (mispred) {
-					// Correct the PC to the actual target
 					if (decision.taken) {
 						program_counter_ = decision.target;
 					} else {
-						// Prediction was taken but actual is not-taken; go sequential
 						program_counter_ = if_id_.pc + 4;
 					}
 					flush_if_once_ = true;
 					mispredictions_++;
 				}
-				// If prediction is correct, PC is already at the right place (set in IF stage)
-				// and the fetched instruction is correct, so no flush needed
-				
 				if (predictor_) {
 					predictor_->update(if_id_.pc, true, decision.taken, decision.target);
 				}

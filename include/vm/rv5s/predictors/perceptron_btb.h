@@ -7,13 +7,6 @@
 #include <cstdint>
 #include <ostream>
 
-/**
- * @brief Perceptron predictor with BTB
- * Combines PerceptronBHT (direction prediction) and DirectMappedBTB (target caching)
- * 
- * This predictor uses neural perceptrons to learn branch patterns
- * and correlates global history for better prediction accuracy.
- */
 class PerceptronBTB : public Predictor {
 public:
   explicit PerceptronBTB(size_t entries);

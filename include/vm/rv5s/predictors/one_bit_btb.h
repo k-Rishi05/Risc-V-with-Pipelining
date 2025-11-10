@@ -5,12 +5,12 @@
 #include <cstdint>
 #include <memory>
 #include "vm/rv5s/predictor.h"
-#include "vm/rv5s/predictors/bht.h"
+#include "vm/rv5s/predictors/one_bit_bht.h"
 #include "vm/rv5s/predictors/btb.h"
 
 /**
  * @brief 1-bit Branch Predictor combining BHT and BTB
- * Uses modular BHT (for direction) and BTB (for target) components
+ * Uses modular OneBitBHT (for direction) and DirectMappedBTB (for target) components
  */
 class OneBitBTB : public Predictor {
 public:

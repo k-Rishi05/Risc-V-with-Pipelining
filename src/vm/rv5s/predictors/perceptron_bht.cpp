@@ -4,7 +4,7 @@
 
 PerceptronBHT::PerceptronBHT(size_t entries) {
   // Initialize table with NUM_PERCEPTRONS perceptrons
-  // (ignore entries parameter, use optimal configuration)
+  // (ignore entries parameter, use optimal configuration as mentioned in paper)
   table_.reserve(NUM_PERCEPTRONS);
   for (int i = 0; i < NUM_PERCEPTRONS; ++i) {
     table_.emplace_back(HISTORY_LENGTH);
@@ -48,10 +48,7 @@ bool PerceptronBHT::predictWithMetadata(uint64_t pc, int& out_index, int& out_ou
 }
 
 void PerceptronBHT::update(uint64_t pc, bool taken) {
-  // This is a simplified update interface that needs to:
-  // 1. Reconstruct the prediction metadata
-  // 2. Train the perceptron
-  // 3. Correct GHR if prediction was wrong
+  // 1. Reconstruct the prediction metadata 2. Train the perceptron 3. Correct GHR if prediction was wrong
   
   size_t index = getIndex(pc);
   
@@ -85,7 +82,6 @@ void PerceptronBHT::train(int perceptron_index, int perceptron_output,
   // Define target: +1 for taken, -1 for not-taken
   int t = actual_taken ? 1 : -1;
   
-  // Check training condition:
   // Train if prediction was wrong OR confidence was low
   bool prediction_was_wrong = ((perceptron_output >= 0) != actual_taken);
   bool confidence_was_low = (std::abs(perceptron_output) <= TRAINING_THRESHOLD);
@@ -114,12 +110,9 @@ void PerceptronBHT::train(int perceptron_index, int perceptron_output,
 }
 
 void PerceptronBHT::reset() {
-  // Reset all perceptron weights to 0
   for (auto& perceptron : table_) {
     perceptron.reset();
   }
-  
-  // Clear GHR
   ghr_.clear();
 }
 
