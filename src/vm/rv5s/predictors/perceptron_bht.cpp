@@ -1,13 +1,17 @@
 #include "vm/rv5s/predictors/perceptron_bht.h"
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
-PerceptronBHT::PerceptronBHT(size_t entries) {
-  // Initialize table with NUM_PERCEPTRONS perceptrons
-  // (ignore entries parameter, use optimal configuration as mentioned in paper)
-  table_.reserve(NUM_PERCEPTRONS);
-  for (int i = 0; i < NUM_PERCEPTRONS; ++i) {
-    table_.emplace_back(HISTORY_LENGTH);
+PerceptronBHT::PerceptronBHT(size_t entries, uint32_t history_length)
+  : history_length_(history_length),
+    num_perceptrons_(entries),  // Use entries parameter as number of perceptrons
+    training_threshold_(static_cast<int>(std::floor(1.93 * history_length + 14))) {
+  
+  // Initialize table with num_perceptrons_ perceptrons
+  table_.reserve(num_perceptrons_);
+  for (int i = 0; i < num_perceptrons_; ++i) {
+    table_.emplace_back(history_length_);
   }
   
   // Initialize GHR to empty (all not-taken)
@@ -84,7 +88,7 @@ void PerceptronBHT::train(int perceptron_index, int perceptron_output,
   
   // Train if prediction was wrong OR confidence was low
   bool prediction_was_wrong = ((perceptron_output >= 0) != actual_taken);
-  bool confidence_was_low = (std::abs(perceptron_output) <= TRAINING_THRESHOLD);
+  bool confidence_was_low = (std::abs(perceptron_output) <= training_threshold_);
   
   if (prediction_was_wrong || confidence_was_low) {
     // Perform weight update
@@ -117,10 +121,10 @@ void PerceptronBHT::reset() {
 }
 
 void PerceptronBHT::debugDump(std::ostream& os) const {
-  os << "PerceptronBHT[perceptrons=" << NUM_PERCEPTRONS 
-     << ", history_len=" << HISTORY_LENGTH << "]\n";
-  os << "  GHR length: " << ghr_.size() << "/" << HISTORY_LENGTH << "\n";
-  os << "  Training threshold: " << TRAINING_THRESHOLD << "\n";
+  os << "PerceptronBHT[perceptrons=" << num_perceptrons_ 
+     << ", history_len=" << history_length_ << "]\n";
+  os << "  GHR length: " << ghr_.size() << "/" << history_length_ << "\n";
+  os << "  Training threshold: " << training_threshold_ << "\n";
   
   // Show GHR state (most recent at the END, oldest at start)
   os << "  Current GHR: ";
@@ -156,9 +160,9 @@ void PerceptronBHT::debugDump(std::ostream& os) const {
     }
   }
   
-  os << "  Perceptrons trained: " << perceptrons_with_training << "/" << NUM_PERCEPTRONS << "\n";
+  os << "  Perceptrons trained: " << perceptrons_with_training << "/" << num_perceptrons_ << "\n";
   os << "  Non-zero weights: " << total_nonzero_weights 
-     << "/" << (NUM_PERCEPTRONS * (HISTORY_LENGTH + 1)) << "\n";
+     << "/" << (num_perceptrons_ * (history_length_ + 1)) << "\n";
   
   // Show a few example perceptrons (first 3 with non-zero weights)
   os << "  Sample perceptrons (first 3 trained):\n";
@@ -207,7 +211,7 @@ std::vector<int> PerceptronBHT::getBipolarHistory() const {
   }
   
   // Pad with -1 (not-taken) if history not yet full
-  while (bipolar.size() <= static_cast<size_t>(HISTORY_LENGTH)) {
+  while (bipolar.size() <= static_cast<size_t>(history_length_)) {
     bipolar.push_back(-1);
   }
   
@@ -218,8 +222,8 @@ void PerceptronBHT::updateGHR(bool taken) {
   // Add new outcome at the back (most recent)
   ghr_.push_back(taken);
   
-  // Keep only last HISTORY_LENGTH outcomes
-  if (ghr_.size() > static_cast<size_t>(HISTORY_LENGTH)) {
+  // Keep only last history_length_ outcomes
+  if (ghr_.size() > static_cast<size_t>(history_length_)) {
     ghr_.erase(ghr_.begin());
   }
 }

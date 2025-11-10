@@ -30,16 +30,17 @@ public:
 
 /**
  * @brief Perceptron-based Branch History Table
- * below is from the paper
- * Hardware budget: 4KB
+ * Default configuration (optimal for 4KB budget):
  * - HISTORY_LENGTH (h): 28
  * - NUM_PERCEPTRONS (N): 141
- * - TRAINING_THRESHOLD (θ): 68
+ * - TRAINING_THRESHOLD (θ): 68 (floor(1.93*h+14))
  * - WEIGHT_BITS: 8 (range: -128 to +127)
+ * 
+ * Configuration is now read from config file for flexibility
  */
 class PerceptronBHT : public BHT {
 public:
-  explicit PerceptronBHT(size_t entries);
+  explicit PerceptronBHT(size_t entries, uint32_t history_length);
   
   bool predict(uint64_t pc) override;
   void update(uint64_t pc, bool taken) override;
@@ -67,10 +68,10 @@ public:
              const std::vector<int>& history_snapshot, bool actual_taken);
 
 private:
-  // Configuration (optimal for 4KB budget)
-  static constexpr int HISTORY_LENGTH = 28;
-  static constexpr int NUM_PERCEPTRONS = 141;  // floor((4096*8)/((28+1)*8))
-  static constexpr int TRAINING_THRESHOLD = 68; // floor(1.93*28+14)
+  // Configuration (set at construction)
+  const int history_length_;         // Number of bits in GHR
+  const int num_perceptrons_;        // Number of perceptrons in table
+  const int training_threshold_;     // Training threshold (θ)
   static constexpr int MAX_WEIGHT = 127;
   static constexpr int MIN_WEIGHT = -128;
   
@@ -82,12 +83,12 @@ private:
   
   // Helper functions
   size_t getIndex(uint64_t pc) const { 
-    return (pc >> 2) % NUM_PERCEPTRONS; 
+    return (pc >> 2) % num_perceptrons_; 
   }
   
   // Get current GHR as bipolar vector {-1, 1}
   std::vector<int> getBipolarHistory() const;
-  
+
   // Update GHR with new branch outcome (speculative update)
   void updateGHR(bool taken);
 };

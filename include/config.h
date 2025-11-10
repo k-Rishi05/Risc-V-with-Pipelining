@@ -29,7 +29,8 @@ enum class PipelineMode : uint8_t {
   PIPE_STATIC_BP = 5,      // Mode 5
   PIPE_DYN1_BP = 6,        // Mode 6
   PIPE_DYN2_BP = 7,        // Mode 7
-  PIPE_PERCEPTRON_BP = 8   // Mode 8
+  PIPE_PERCEPTRON_BP = 8,  // Mode 8
+  PIPE_GSHARE_BP = 9       // Mode 9
 };
 
 // Branch resolution stage control (kept simple)
@@ -56,9 +57,13 @@ struct VmConfig {
   // Feature flags derived from pipeline_mode; can be overridden via config
   bool hazard_detection_enabled = false;
   bool forwarding_enabled = false;
-  enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2, TwoBit=3, Perceptron=4 };
+  enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2, TwoBit=3, Perceptron=4, Gshare=5 };
   PredictorKind predictor = PredictorKind::None;
   BranchResolveStage branch_resolve_stage = BranchResolveStage::EX; // optional tuning
+  
+  // Branch predictor configuration
+  uint32_t gshare_history_length = 4; // Number of bits in GHR for Gshare (default: 8, range: 1-16)
+  uint32_t perceptron_history_length = 8; // Number of bits in GHR for Perceptron (default: 28)
 
   // VM type removed; selection is based solely on pipeline_mode
   void setPipelineMode(PipelineMode mode) {
@@ -111,6 +116,12 @@ struct VmConfig {
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::Perceptron;
+        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
+        break;
+      case PipelineMode::PIPE_GSHARE_BP:
+        hazard_detection_enabled = true;
+        forwarding_enabled = true;
+        predictor = PredictorKind::Gshare;
         branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
     }
@@ -198,6 +209,22 @@ struct VmConfig {
 
   void setPredictor(PredictorKind kind) { predictor = kind; }
   PredictorKind getPredictor() const { return predictor; }
+  
+  void setGshareHistoryLength(uint32_t length) { 
+    if (length < 1 || length > 16) {
+      throw std::invalid_argument("Gshare history length must be between 1 and 16");
+    }
+    gshare_history_length = length; 
+  }
+  uint32_t getGshareHistoryLength() const { return gshare_history_length; }
+  
+  void setPerceptronHistoryLength(uint32_t length) {
+    if (length < 1 || length > 64) {
+      throw std::invalid_argument("Perceptron history length must be between 1 and 64");
+    }
+    perceptron_history_length = length;
+  }
+  uint32_t getPerceptronHistoryLength() const { return perceptron_history_length; }
 
   void setBranchResolveStage(BranchResolveStage s) { branch_resolve_stage = s; }
   BranchResolveStage getBranchResolveStage() const { return branch_resolve_stage; }
@@ -213,6 +240,7 @@ struct VmConfig {
         else if (value == "6" || value == "pipe_dyn1_bp") setPipelineMode(PipelineMode::PIPE_DYN1_BP);
         else if (value == "7" || value == "pipe_dyn2_bp") setPipelineMode(PipelineMode::PIPE_DYN2_BP);
         else if (value == "8" || value == "pipe_perceptron_bp") setPipelineMode(PipelineMode::PIPE_PERCEPTRON_BP);
+        else if (value == "9" || value == "pipe_gshare_bp") setPipelineMode(PipelineMode::PIPE_GSHARE_BP);
         else throw std::invalid_argument("Unknown pipeline_mode: " + value);
       } else if (key == "processor_type") {
         // Deprecated: map to pipeline_mode for backward compatibility
@@ -240,6 +268,10 @@ struct VmConfig {
         setRunStepDelay(std::stoull(value));
       } else if (key == "instruction_execution_limit") {
         setInstructionExecutionLimit(std::stoull(value));
+      } else if (key == "gshare_history_length") {
+        setGshareHistoryLength(std::stoul(value));
+      } else if (key == "perceptron_history_length") {
+        setPerceptronHistoryLength(std::stoul(value));
       }
       
       else {

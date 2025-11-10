@@ -9,7 +9,7 @@
 
 class PerceptronBTB : public Predictor {
 public:
-  explicit PerceptronBTB(size_t entries);
+  explicit PerceptronBTB(size_t entries, uint32_t history_length);
   
   PredictResult predict(uint64_t pc, uint32_t instr) override;
   void update(uint64_t pc, bool is_branch, bool taken, uint64_t target) override;

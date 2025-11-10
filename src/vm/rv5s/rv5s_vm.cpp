@@ -12,6 +12,7 @@
 #include "vm/rv5s/predictors/one_bit_btb.h"
 #include "vm/rv5s/predictors/two_bit_btb.h"
 #include "vm/rv5s/predictors/perceptron_btb.h"
+#include "vm/rv5s/predictors/gshare_btb.h"
 #include <iomanip>
 #include <sstream>
 
@@ -32,15 +33,17 @@ static inline bool is_bp_mode() {
 	return mode == vm_config::PipelineMode::PIPE_STATIC_BP || 
 	       mode == vm_config::PipelineMode::PIPE_DYN1_BP ||
 	       mode == vm_config::PipelineMode::PIPE_DYN2_BP ||
-	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP;
+	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP ||
+	       mode == vm_config::PipelineMode::PIPE_GSHARE_BP;
 }
 
-// Helper to check if we're in any dynamic prediction mode (mode 6, 7, or 8)
+// Helper to check if we're in any dynamic prediction mode (mode 6, 7, 8, or 9)
 static inline bool is_dynamic_bp_mode() {
 	auto mode = vm_config::config.getPipelineMode();
 	return mode == vm_config::PipelineMode::PIPE_DYN1_BP ||
 	       mode == vm_config::PipelineMode::PIPE_DYN2_BP ||
-	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP;
+	       mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP ||
+	       mode == vm_config::PipelineMode::PIPE_GSHARE_BP;
 }
 
 RV5SVM::RV5SVM() : VmBase() {
@@ -75,7 +78,16 @@ void RV5SVM::Reset() {
 		predictor_ = std::make_unique<TwoBitBTB>(32);
 		predictor_->reset();
 	} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
-		predictor_ = std::make_unique<PerceptronBTB>(141);  // 141 perceptrons (optimal for 4KB)
+		uint32_t history_length = vm_config::config.getPerceptronHistoryLength();
+		// Calculate optimal number of perceptrons for given history length
+		// Budget: 4KB = 32768 bits, each perceptron has (h+1) 8-bit weights
+		size_t num_perceptrons = 32768 / ((history_length + 1) * 8);
+		predictor_ = std::make_unique<PerceptronBTB>(num_perceptrons, history_length);
+		predictor_->reset();
+	} else if (mode == vm_config::PipelineMode::PIPE_GSHARE_BP) {
+		uint32_t history_length = vm_config::config.getGshareHistoryLength();
+		size_t pht_entries = 1 << history_length;  // 2^history_length
+		predictor_ = std::make_unique<GshareBTB>(pht_entries, history_length);
 		predictor_->reset();
 	}
 }
@@ -701,7 +713,13 @@ void RV5SVM::Step() {
 		} else if (mode == vm_config::PipelineMode::PIPE_DYN2_BP) {
 			predictor_ = std::make_unique<TwoBitBTB>(32);
 		} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
-			predictor_ = std::make_unique<PerceptronBTB>(141);
+			uint32_t history_length = vm_config::config.getPerceptronHistoryLength();
+			size_t num_perceptrons = 32768 / ((history_length + 1) * 8);
+			predictor_ = std::make_unique<PerceptronBTB>(num_perceptrons, history_length);
+		} else if (mode == vm_config::PipelineMode::PIPE_GSHARE_BP) {
+			uint32_t history_length = vm_config::config.getGshareHistoryLength();
+			size_t pht_entries = 1 << history_length;  // 2^history_length
+			predictor_ = std::make_unique<GshareBTB>(pht_entries, history_length);
 		}
 		if (predictor_) {
 			predictor_->reset();
@@ -735,7 +753,7 @@ void RV5SVM::Step() {
 	// Display pipeline state after each step
 	PrintPipelineState();
 
-	// Dump predictor state each step for dynamic BP modes (6, 7, and 8)
+	// Dump predictor state each step for dynamic BP modes (6, 7, 8, and 9)
 	if (predictor_ && is_dynamic_bp_mode()) {
 		auto mode = vm_config::config.getPipelineMode();
 		if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
@@ -744,6 +762,8 @@ void RV5SVM::Step() {
 			std::cout << "--- 2-Bit Predictor Dump ---" << std::endl;
 		} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
 			std::cout << "--- Perceptron Predictor Dump ---" << std::endl;
+		} else if (mode == vm_config::PipelineMode::PIPE_GSHARE_BP) {
+			std::cout << "--- Gshare Predictor Dump ---" << std::endl;
 		}
 		predictor_->debugDump(std::cout);
 	}

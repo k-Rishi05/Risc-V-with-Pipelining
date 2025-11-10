@@ -1,20 +1,20 @@
-#include "vm/rv5s/predictors/perceptron_btb.h"
+#include "vm/rv5s/predictors/gshare_btb.h"
 #include <iostream>
 
-PerceptronBTB::PerceptronBTB(size_t entries, uint32_t history_length) {
+GshareBTB::GshareBTB(size_t entries, uint32_t history_length) {
   // Create modular BHT and BTB components
-  bht_ = std::make_unique<PerceptronBHT>(entries, history_length);
+  bht_ = std::make_unique<GshareBHT>(entries, history_length);
   btb_ = std::make_unique<DirectMappedBTB>(entries);
 }
 
-PredictResult PerceptronBTB::predict(uint64_t pc, uint32_t /*instr*/) {
+PredictResult GshareBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   PredictResult r;
   
   // Query BTB for target
   auto btb_result = btb_->lookup(pc);
   
   if (btb_result.hit) {
-    // BTB hit: query perceptron BHT for direction
+    // BTB hit: query Gshare BHT for direction
     r.valid = true;
     r.taken = bht_->predict(pc);
     r.target = btb_result.target;
@@ -28,7 +28,7 @@ PredictResult PerceptronBTB::predict(uint64_t pc, uint32_t /*instr*/) {
   return r;
 }
 
-void PerceptronBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
+void GshareBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t target) {
   if (!is_branch) return;
   
   // Update both BHT (direction) and BTB (target)
@@ -36,13 +36,13 @@ void PerceptronBTB::update(uint64_t pc, bool is_branch, bool taken, uint64_t tar
   btb_->update(pc, target);
 }
 
-void PerceptronBTB::reset() {
+void GshareBTB::reset() {
   bht_->reset();
   btb_->reset();
 }
 
-void PerceptronBTB::debugDump(std::ostream& os) const {
-  os << "=== PerceptronBTB Predictor ===\n";
+void GshareBTB::debugDump(std::ostream& os) const {
+  os << "=== GshareBTB Predictor ===\n";
   bht_->debugDump(os);
   btb_->debugDump(os);
 }
