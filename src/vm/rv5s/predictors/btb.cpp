@@ -2,8 +2,6 @@
 #include <iostream>
 #include <iomanip>
 
-// DirectMappedBTB implementation
-
 DirectMappedBTB::DirectMappedBTB(size_t entries) : size_(normalize(entries)) {
   table_.resize(size_);
   reset();
@@ -54,7 +52,6 @@ void DirectMappedBTB::debugDump(std::ostream& os) const {
 }
 
 size_t DirectMappedBTB::normalize(size_t n) {
-  // Force to power of two >= 8
   size_t p = 8;
   while (p < n) p <<= 1;
   return p;

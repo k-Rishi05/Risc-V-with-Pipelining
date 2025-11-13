@@ -7,7 +7,6 @@
 
 #include <cstdint>
 
-// Forward declarations of pipeline register bundles
 struct IDEX;
 struct EXMEM;
 struct MEMWB;
@@ -19,9 +18,9 @@ enum class ForwardSel : uint8_t {
 };
 
 struct ForwardDecision {
-    ForwardSel selA{ForwardSel::REG}; // for EX operand A (rs1)
-    ForwardSel selB{ForwardSel::REG}; // for EX operand B (rs2 when alu_src==0)
-    ForwardSel storeSel{ForwardSel::REG}; // for store data path (always rs2), independent of alu_src
+    ForwardSel selA{ForwardSel::REG};
+    ForwardSel selB{ForwardSel::REG}; 
+    ForwardSel storeSel{ForwardSel::REG};
 };
 
 class ForwardUnit {

@@ -5,23 +5,18 @@
 #include <cstdint>
 #include <vector>
 #include <iosfwd>
-
-
-//Branch Target Buffer (BTB) - caches branch target addresses
 class BTB {
 public:
   struct LookupResult {
-    bool hit{false};        // true if PC found in BTB
-    uint64_t target{0};     // cached target address
+    bool hit{false};
+    uint64_t target{0};
   };
   
   virtual ~BTB() = default;
   virtual LookupResult lookup(uint64_t pc) = 0;
-  
-  // Update BTB with branch PC and its target
   virtual void update(uint64_t pc, uint64_t target) = 0;
   virtual void reset() = 0;
-  virtual void debugDump(std::ostream& /*os*/) const {}
+  virtual void debugDump(std::ostream&) const {}
 };
 
 class DirectMappedBTB : public BTB {

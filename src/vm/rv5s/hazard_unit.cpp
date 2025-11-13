@@ -29,20 +29,13 @@ static inline bool id_uses_rs2(uint8_t opcode) {
 	}
 }
 
-HazardDecision HazardUnit::Compute(const IFID& if_id,
-								   const IDEX& id_ex,
-								   const EXMEM& ex_mem,
-								   const MEMWB& mem_wb,
-								   bool forwarding_enabled) const {
+HazardDecision HazardUnit::Compute(const IFID& if_id,const IDEX& id_ex,const EXMEM& ex_mem,const MEMWB& mem_wb,bool forwarding_enabled) const {
 	HazardDecision d{};
 	if (!if_id.valid) return d;
-
-	// Data hazard detection only (control hazards handled in stageEX)
 	uint8_t opcode = 0, rs1 = 0, rs2 = 0;
 	decode_rs(if_id.instr, opcode, rs1, rs2);
 
 	auto consider_dep = [&](uint8_t rd, bool writes, bool is_bubble, int stall_if_dep){
-		// Don't consider dependencies from stall bubbles
 		if (writes && rd != 0 && !is_bubble) {
 			if ((id_uses_rs1(opcode) && rs1 == rd) || (id_uses_rs2(opcode) && rs2 == rd)) {
 				d.stall_cycles = std::max(d.stall_cycles, stall_if_dep);
@@ -51,11 +44,11 @@ HazardDecision HazardUnit::Compute(const IFID& if_id,
 	};
 
 	if (!forwarding_enabled) {
-		// Stall-only mode (Mode 3): conservative stalls on RAW against EX/MEM producers
-		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, id_ex.is_bubble, 2); // EX -> 2 stalls
-		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, ex_mem.is_bubble, 1); // MEM -> 1 stall
+		// Stall-only mode 
+		consider_dep(id_ex.rd, id_ex.valid && id_ex.reg_write, id_ex.is_bubble, 2); 
+		consider_dep(ex_mem.rd, ex_mem.valid && ex_mem.reg_write, ex_mem.is_bubble, 1); 
 	} else {
-		// Forwarding mode (Mode 4): only unavoidable load-use stall
+		// Forwarding mode
 		if (id_ex.valid && id_ex.mem_read && id_ex.rd != 0 && !id_ex.is_bubble) {
 			const bool dep_rs1 = id_uses_rs1(opcode) && (rs1 == id_ex.rd);
 			const bool dep_rs2 = id_uses_rs2(opcode) && (rs2 == id_ex.rd);

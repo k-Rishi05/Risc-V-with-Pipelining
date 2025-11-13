@@ -2,8 +2,6 @@
 #define RV5S_PREDICTORS_STATIC_PREDICTOR_H
 
 #include "vm/rv5s/predictor.h"
-
-// Simple static predictor: always not taken (can expand backward-taken if needed)
 class StaticPredictor : public Predictor {
 public:
   PredictResult predict(uint64_t pc, uint32_t /*instr*/) override {

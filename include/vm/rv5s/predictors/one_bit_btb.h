@@ -7,11 +7,6 @@
 #include "vm/rv5s/predictor.h"
 #include "vm/rv5s/predictors/one_bit_bht.h"
 #include "vm/rv5s/predictors/btb.h"
-
-/**
- * @brief 1-bit Branch Predictor combining BHT and BTB
- * Uses modular OneBitBHT (for direction) and DirectMappedBTB (for target) components
- */
 class OneBitBTB : public Predictor {
 public:
   explicit OneBitBTB(size_t entries = 32);
@@ -22,8 +17,8 @@ public:
   void debugDump(std::ostream& os) const override;
 
 private:
-  std::unique_ptr<BHT> bht_;      // Branch History Table for direction prediction
-  std::unique_ptr<BTB> btb_;      // Branch Target Buffer for target caching
+  std::unique_ptr<BHT> bht_;      
+  std::unique_ptr<BTB> btb_;    
 };
 
 #endif // RV5S_PREDICTORS_ONE_BIT_BTB_H

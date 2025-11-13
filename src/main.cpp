@@ -35,8 +35,9 @@ int main(int argc, char *argv[]) {
                   << "  --verbose-errors     Enable verbose error printing\n"
                   << "  --start-vm           Start the VM with the default program\n"
                   << "  --start-vm --vm-as-backend  Start the VM with the default program in backend mode\n"
-                  << "  --vm-mode <1..6|name>  Set pipeline mode for this run (1=single, 2=nohaz, 3=stall, 4=fwd, 5=static, 6=dyn1)\n"
-                  << "  (VM core is auto-selected from pipeline_mode; you can also use: modify_config Execution pipeline_mode <1..6>)\n";
+                  << "  --vm-mode <1..9|name>  Set pipeline mode for this run\n"
+                  << "      1=single, 2=nohaz, 3=stall, 4=fwd, 5=static, 6=dyn1, 7=dyn2, 8=perceptron, 9=gshare\n"
+                  << "  (VM core is auto-selected from pipeline_mode; you can also use: modify_config Execution pipeline_mode <1..9>)\n";
         return 0;
 
     } else if (arg == "--assemble") {
@@ -103,8 +104,11 @@ int main(int argc, char *argv[]) {
     else if (m == "4" || m == "fwd" || m == "forward" || m == "pipe_fwd") setMode(PipelineMode::PIPE_FWD);
     else if (m == "5" || m == "static" || m == "static_bp" || m == "pipe_static_bp") setMode(PipelineMode::PIPE_STATIC_BP);
     else if (m == "6" || m == "dyn1" || m == "onebit" || m == "pipe_dyn1_bp" || m == "dynamic_1bit") setMode(PipelineMode::PIPE_DYN1_BP);
+    else if (m == "7" || m == "dyn2" || m == "twobit" || m == "pipe_dyn2_bp" || m == "dynamic_2bit") setMode(PipelineMode::PIPE_DYN2_BP);
+    else if (m == "8" || m == "perceptron" || m == "pipe_perceptron_bp" || m == "perceptron_bp") setMode(PipelineMode::PIPE_PERCEPTRON_BP);
+    else if (m == "9" || m == "gshare" || m == "pipe_gshare_bp" || m == "gshare_bp") setMode(PipelineMode::PIPE_GSHARE_BP);
     else {
-      std::cerr << "Unknown --vm-mode value: " << m << ". Use 1..6 or names (single,nohaz,stall,fwd,static,dyn1).\n";
+      std::cerr << "Unknown --vm-mode value: " << m << ". Use 1..9 or names (single,nohaz,stall,fwd,static,dyn1,dyn2,perceptron,gshare).\n";
       return 1;
     }
     std::cout << "VM_MODE_SET " << m << "\n";

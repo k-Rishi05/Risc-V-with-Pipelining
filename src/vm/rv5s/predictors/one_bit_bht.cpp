@@ -1,25 +1,23 @@
 #include "vm/rv5s/predictors/one_bit_bht.h"
 #include <iostream>
 
-// OneBitBHT implementation
-
 OneBitBHT::OneBitBHT(size_t entries) : size_(normalize(entries)) {
-  table_.resize(size_, false); // Initialize all to not-taken
+  table_.resize(size_, false);
 }
 
 bool OneBitBHT::predict(uint64_t pc) {
   size_t idx = index(pc);
-  return table_[idx]; // Return last outcome
+  return table_[idx];
 }
 
 void OneBitBHT::update(uint64_t pc, bool taken) {
   size_t idx = index(pc);
-  table_[idx] = taken; // Store actual outcome as next prediction
+  table_[idx] = taken;
 }
 
 void OneBitBHT::reset() {
   for (size_t i = 0; i < table_.size(); ++i) {
-    table_[i] = false; // Reset all to not-taken
+    table_[i] = false;
   }
 }
 
@@ -46,7 +44,6 @@ void OneBitBHT::debugDump(std::ostream& os) const {
 }
 
 size_t OneBitBHT::normalize(size_t n) {
-  // Force to power of two >= 8
   size_t p = 8;
   while (p < n) p <<= 1;
   return p;

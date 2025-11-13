@@ -2,25 +2,19 @@
 #include <iostream>
 
 TwoBitBHT::TwoBitBHT(size_t entries) : size_(normalize(entries)) {
-  // Initialize all to strongly not-taken (00)
-  table_.resize(size_, TwoBitState::STRONGLY_NOT_TAKEN);
+  table_.resize(size_, TwoBitState::WEAKLY_NOT_TAKEN);
 }
 
 bool TwoBitBHT::predict(uint64_t pc) {
   size_t idx = index(pc);
   TwoBitState state = table_[idx];
-  
-  // Predict taken if state is 10 (weakly taken) or 11 (strongly taken)
   return (state == TwoBitState::WEAKLY_TAKEN || state == TwoBitState::STRONGLY_TAKEN);
 }
 
 void TwoBitBHT::update(uint64_t pc, bool taken) {
   size_t idx = index(pc);
   TwoBitState& state = table_[idx];
-  
-  // 2-bit saturating counter state machine
   if (taken) {
-    // Move toward strongly taken
     switch (state) {
       case TwoBitState::STRONGLY_NOT_TAKEN:
         state = TwoBitState::WEAKLY_NOT_TAKEN;
@@ -32,11 +26,9 @@ void TwoBitBHT::update(uint64_t pc, bool taken) {
         state = TwoBitState::STRONGLY_TAKEN;
         break;
       case TwoBitState::STRONGLY_TAKEN:
-        // Already at maximum, stay
         break;
     }
   } else {
-    // Move toward strongly not-taken
     switch (state) {
       case TwoBitState::STRONGLY_TAKEN:
         state = TwoBitState::WEAKLY_TAKEN;
@@ -48,7 +40,6 @@ void TwoBitBHT::update(uint64_t pc, bool taken) {
         state = TwoBitState::STRONGLY_NOT_TAKEN;
         break;
       case TwoBitState::STRONGLY_NOT_TAKEN:
-        // Already at minimum, stay
         break;
     }
   }
@@ -106,7 +97,6 @@ void TwoBitBHT::debugDump(std::ostream& os) const {
 }
 
 size_t TwoBitBHT::normalize(size_t n) {
-  // Force to power of two >= 8
   size_t p = 8;
   while (p < n) p <<= 1;
   return p;

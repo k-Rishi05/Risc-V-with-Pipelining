@@ -24,7 +24,6 @@ struct IFID {
 	BubbleType bubble_type{BubbleType::None};
 	uint32_t instr{0};
 	uint64_t pc{0};
-	// Prediction metadata (used only in dynamic predictor mode)
 	bool has_prediction{false};
 	bool predicted_taken{false};
 	uint64_t predicted_target{0};
@@ -132,7 +131,7 @@ class RV5SVM : public VmBase {
 
 	void Run() override;
 	void DebugRun() override;
-	void Step() override; // one cycle
+	void Step() override; 
 	void Undo() override; 
 	void Redo() override; 
 	void Reset() override;
@@ -141,25 +140,20 @@ class RV5SVM : public VmBase {
 	void PrintPipelineState();
 
  private:
-	// control/decode helper
 	RV5SControlUnit control_;
 
-	// Feature flags (reserved for future use)
 	bool hazard_detection_enabled_{false};
 	bool forwarding_enabled_{false};
-	// predictor kind removed; use vm_config::PipelineMode to select
 
 	// Optional: control hazard resolution stage (unused in basic pipeline)
-	enum class BranchResolveStage : uint8_t { EX=0, ID=1 };
-	BranchResolveStage branch_resolve_stage_{BranchResolveStage::EX};
+	// enum class BranchResolveStage : uint8_t { EX=0, ID=1 };
+	// BranchResolveStage branch_resolve_stage_{BranchResolveStage::EX};
 
 	// pipeline state
 	IFID if_id_{};
 	IDEX id_ex_{};
 	EXMEM ex_mem_{};
 	MEMWB mem_wb_{};
-
-	// ---------------- Branch Prediction (Mode 6) ----------------
 	std::unique_ptr<Predictor> predictor_{};
 
 	// simple stats
@@ -168,27 +162,23 @@ class RV5SVM : public VmBase {
 	uint64_t fwd_hits_{0};
 	uint64_t mispredictions_{0};
 
-	// stage helpers (in-place, back-to-front safe)
 	void stageIF();
 	void stageID();
 	void stageEX();
 	void stageMEM();
 	void stageWB();
 
-	// hazard detection (stall only)
 	HazardUnit hazard_{};
 	ForwardUnit forward_{};
 	bool stall_if_id_{false};
 	int stall_counter_{0};
 	bool flush_if_once_{false};
-	bool flush_id_once_{false}; // For control hazards when branch is taken
+	bool flush_id_once_{false}; 
 
-	// internal helpers (none for basic pipeline)
 	std::string DisassembleInstruction(uint32_t instr) const;
 
 	bool pipelineEmpty() const;
 	
-	// Helper to insert bubbles into pipeline stages
 	template<typename PipeReg>
 	void insertBubble(PipeReg& stage, typename PipeReg::BubbleType type) {
 		stage = PipeReg{};
@@ -198,7 +188,6 @@ class RV5SVM : public VmBase {
 		stage.instr = 0x00000013; // NOP (addi x0,x0,0)
 	}
 	
-	// Branch resolution helper (shared by ID and EX stages)
 	struct BranchDecision { bool taken; uint64_t target; };
 	BranchDecision resolveBranch(uint8_t opcode, uint8_t funct3, uint64_t pc, 
 	                              int32_t imm, uint64_t rs1_val, uint64_t rs2_val,

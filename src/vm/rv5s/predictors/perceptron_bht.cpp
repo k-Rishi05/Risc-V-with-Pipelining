@@ -5,112 +5,52 @@
 
 PerceptronBHT::PerceptronBHT(size_t entries, uint32_t history_length)
   : history_length_(history_length),
-    num_perceptrons_(entries),  // Use entries parameter as number of perceptrons
+    num_perceptrons_(entries),  
     training_threshold_(static_cast<int>(std::floor(1.93 * history_length + 14))) {
   
-  // Initialize table with num_perceptrons_ perceptrons
   table_.reserve(num_perceptrons_);
   for (int i = 0; i < num_perceptrons_; ++i) {
     table_.emplace_back(history_length_);
   }
   
-  // Initialize GHR to empty (all not-taken)
   ghr_.clear();
 }
 
 bool PerceptronBHT::predict(uint64_t pc) {
-  int dummy_index, dummy_output;
-  return predictWithMetadata(pc, dummy_index, dummy_output);
-}
-
-bool PerceptronBHT::predictWithMetadata(uint64_t pc, int& out_index, int& out_output) {
-  // Get perceptron index from PC
   size_t index = getIndex(pc);
-  out_index = static_cast<int>(index);
-  
-  // Get bipolar history vector
-  std::vector<int> x = getBipolarHistory();
-  
-  // Get perceptron weights
-  const auto& weights = table_[index].weights;
-  
-  // Compute dot product: y = Σ(w_i * x_i)
-  int y = 0;
-  for (size_t i = 0; i < weights.size() && i < x.size(); ++i) {
-    y += weights[i] * x[i];
-  }
-  
-  out_output = y;
-  
-  // Prediction: taken if y >= 0
-  bool prediction = (y >= 0);
-  
-  // Speculative GHR update (will be corrected on misprediction)
-  updateGHR(prediction);
-  
-  return prediction;
+  int y = computeOutput(index);
+  return (y >= 0);
 }
 
 void PerceptronBHT::update(uint64_t pc, bool taken) {
-  // 1. Reconstruct the prediction metadata 2. Train the perceptron 3. Correct GHR if prediction was wrong
-  
   size_t index = getIndex(pc);
-  
-  // Get CURRENT GHR state (which includes speculative updates from prediction)
-  // We need to rewind by 1 to get the history AT THE TIME of prediction
-  bool last_prediction = false;
-  if (!ghr_.empty()) {
-    last_prediction = ghr_.back();
-    ghr_.pop_back();  // Remove speculative update
-  }
-  
-  // Now get the history that was used for prediction
-  std::vector<int> x = getBipolarHistory();
-  
-  // Recompute output for training condition
-  const auto& weights = table_[index].weights;
-  int y = 0;
-  for (size_t i = 0; i < weights.size() && i < x.size(); ++i) {
-    y += weights[i] * x[i];
-  }
-  
-  // Train with the actual outcome
-  train(static_cast<int>(index), y, x, taken);
-  
-  // Update GHR with ACTUAL outcome (non-speculative update)
-  updateGHR(taken);
-}
+  int y = computeOutput(index);
 
-void PerceptronBHT::train(int perceptron_index, int perceptron_output,
-                          const std::vector<int>& history_snapshot, bool actual_taken) {
-  // Define target: +1 for taken, -1 for not-taken
-  int t = actual_taken ? 1 : -1;
+  int t = taken ? 1 : -1;
   
-  // Train if prediction was wrong OR confidence was low
-  bool prediction_was_wrong = ((perceptron_output >= 0) != actual_taken);
-  bool confidence_was_low = (std::abs(perceptron_output) <= training_threshold_);
+  bool prediction_was_wrong = ((y >= 0) != taken);
+  bool confidence_was_low = (std::abs(y) <= training_threshold_);
   
   if (prediction_was_wrong || confidence_was_low) {
-    // Perform weight update
-    auto& weights = table_[perceptron_index].weights;
+    std::vector<int> x;
+    x.push_back(1);  // bias
+    for (auto it = ghr_.rbegin(); it != ghr_.rend(); ++it) {
+      x.push_back(*it ? 1 : -1); // bipolar vector
+    }
+    while (x.size() <= static_cast<size_t>(history_length_)) {
+      x.push_back(-1);
+    }
     
-    // Update all h+1 weights
-    for (size_t i = 0; i < weights.size() && i < history_snapshot.size(); ++i) {
-      int x_i = history_snapshot[i];
-      
-      // Update rule: w_i = w_i + t*x_i
-      // If t and x_i have same sign, increment; otherwise decrement
-      if (t == x_i) {
-        if (weights[i] < MAX_WEIGHT) {
-          weights[i]++;
-        }
+    auto& weights = table_[index].weights;
+    for (size_t i = 0; i < weights.size() && i < x.size(); ++i) {
+      if (t == x[i]) {
+        if (weights[i] < MAX_WEIGHT) weights[i]++;
       } else {
-        if (weights[i] > MIN_WEIGHT) {
-          weights[i]--;
-        }
+        if (weights[i] > MIN_WEIGHT) weights[i]--;
       }
     }
   }
+  updateGHR(taken);
 }
 
 void PerceptronBHT::reset() {
@@ -199,30 +139,22 @@ void PerceptronBHT::debugDump(std::ostream& os) const {
   }
 }
 
-std::vector<int> PerceptronBHT::getBipolarHistory() const {
-  std::vector<int> bipolar;
-  
-  // First element is always +1 (bias input)
-  bipolar.push_back(1);
-  
-  // Add history bits as ±1 (most recent first, which is at back of ghr_)
-  for (auto it = ghr_.rbegin(); it != ghr_.rend(); ++it) {
-    bipolar.push_back(*it ? 1 : -1);
+int PerceptronBHT::computeOutput(size_t index) const {
+  const auto& weights = table_[index].weights;
+  int y = weights[0];
+  size_t weight_idx = 1;
+  for (auto it = ghr_.rbegin(); it != ghr_.rend() && weight_idx < weights.size(); ++it, ++weight_idx) {
+    int x_i = (*it) ? 1 : -1;
+    y += weights[weight_idx] * x_i;
   }
-  
-  // Pad with -1 (not-taken) if history not yet full
-  while (bipolar.size() <= static_cast<size_t>(history_length_)) {
-    bipolar.push_back(-1);
+  for (; weight_idx < weights.size(); ++weight_idx) {
+    y += weights[weight_idx] * (-1);
   }
-  
-  return bipolar;
+  return y;
 }
 
 void PerceptronBHT::updateGHR(bool taken) {
-  // Add new outcome at the back (most recent)
   ghr_.push_back(taken);
-  
-  // Keep only last history_length_ outcomes
   if (ghr_.size() > static_cast<size_t>(history_length_)) {
     ghr_.erase(ghr_.begin());
   }

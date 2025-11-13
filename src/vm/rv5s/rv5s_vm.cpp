@@ -27,7 +27,6 @@ static inline bool is_forward_mode() {
 	return vm_config::config.getPipelineMode() == vm_config::PipelineMode::PIPE_FWD;
 }
 
-// Predictor presence decides behavior; no need for per-mode helpers here
 static inline bool is_bp_mode() {
 	auto mode = vm_config::config.getPipelineMode();
 	return mode == vm_config::PipelineMode::PIPE_STATIC_BP || 
@@ -37,7 +36,6 @@ static inline bool is_bp_mode() {
 	       mode == vm_config::PipelineMode::PIPE_GSHARE_BP;
 }
 
-// Helper to check if we're in any dynamic prediction mode (mode 6, 7, 8, or 9)
 static inline bool is_dynamic_bp_mode() {
 	auto mode = vm_config::config.getPipelineMode();
 	return mode == vm_config::PipelineMode::PIPE_DYN1_BP ||
@@ -66,9 +64,7 @@ void RV5SVM::Reset() {
 
 	control_.Reset();
 	if_id_ = {}; id_ex_ = {}; ex_mem_ = {}; mem_wb_ = {};
-	breakpoints_.clear();  // Clear breakpoints on reset
-	
-	// Initialize predictor based on mode (reuse BTB infrastructure)
+	breakpoints_.clear(); 
 	predictor_.reset();
 	auto mode = vm_config::config.getPipelineMode();
 	if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
@@ -79,14 +75,13 @@ void RV5SVM::Reset() {
 		predictor_->reset();
 	} else if (mode == vm_config::PipelineMode::PIPE_PERCEPTRON_BP) {
 		uint32_t history_length = vm_config::config.getPerceptronHistoryLength();
-		// Calculate optimal number of perceptrons for given history length
-		// Budget: 4KB = 32768 bits, each perceptron has (h+1) 8-bit weights
+		// Budget: 4KB = 32768 bits, according to research paper read
 		size_t num_perceptrons = 32768 / ((history_length + 1) * 8);
 		predictor_ = std::make_unique<PerceptronBTB>(num_perceptrons, history_length);
 		predictor_->reset();
 	} else if (mode == vm_config::PipelineMode::PIPE_GSHARE_BP) {
 		uint32_t history_length = vm_config::config.getGshareHistoryLength();
-		size_t pht_entries = 1 << history_length;  // 2^history_length
+		size_t pht_entries = 1 << history_length; 
 		predictor_ = std::make_unique<GshareBTB>(pht_entries, history_length);
 		predictor_->reset();
 	}
@@ -241,7 +236,6 @@ void RV5SVM::PrintPipelineState() {
 	std::cout << "└────────────────────────────────────────────────┘" << std::endl;
 }
 
-// Helper: resolve branch decision (shared by ID and EX)
 RV5SVM::BranchDecision RV5SVM::resolveBranch(uint8_t opcode, uint8_t funct3, uint64_t pc,
                                                int32_t imm, uint64_t rs1_val, uint64_t rs2_val,
                                                uint64_t alu_result) const {
@@ -253,14 +247,12 @@ RV5SVM::BranchDecision RV5SVM::resolveBranch(uint8_t opcode, uint8_t funct3, uin
 		decision.target = static_cast<uint64_t>(pc + imm);
 		return decision;
 	}
-	
 	// JALR: always taken
 	if (opcode == 0b1100111) {
 		decision.taken = true;
 		decision.target = (rs1_val + static_cast<uint64_t>(imm)) & ~static_cast<uint64_t>(1);
 		return decision;
 	}
-	
 	// Conditional branches (opcode 0b1100011)
 	if (opcode == 0b1100011) {
 		bool take = false;
@@ -274,23 +266,21 @@ RV5SVM::BranchDecision RV5SVM::resolveBranch(uint8_t opcode, uint8_t funct3, uin
 			default: break;
 		}
 		// Debug: print branch decision
-		if (funct3 == 0b000) { // BEQ
-			std::cout << "BEQ: rs1=" << rs1_val << " rs2=" << rs2_val 
-			          << " alu_result=" << alu_result << " taken=" << take << std::endl;
-		}
+		// if (funct3 == 0b000) { // BEQ
+		// 	std::cout << "BEQ: rs1=" << rs1_val << " rs2=" << rs2_val 
+		// 	          << " alu_result=" << alu_result << " taken=" << take << std::endl;
+		// }
 		decision.taken = take;
 		decision.target = static_cast<uint64_t>(pc + imm);
 		return decision;
 	}
 	
-	return decision; // Not a branch
+	return decision;
 }
 
 
 void RV5SVM::stageIF() {
 	IFID out{};
-	
-	// If flush requested, insert bubble instead of fetching
 	if (flush_if_once_) {
 		insertBubble(if_id_, IFID::BubbleType::Flush);
 		flush_if_once_ = false;
@@ -303,7 +293,6 @@ void RV5SVM::stageIF() {
 		out.pc = fetch_pc;
 		out.valid = true;
 
-		// Use predictor in any dynamic BP mode (mode 6 or 7)
 		if (predictor_ && is_dynamic_bp_mode()) {
 			auto pr = predictor_->predict(fetch_pc, out.instr);
 			out.has_prediction = pr.valid;
@@ -317,31 +306,25 @@ void RV5SVM::stageIF() {
 				}
 			}
 		} else {
-			// No predictor: sequential fetch
 			if (!stall_if_id_) {
 				UpdateProgramCounter(4);
 			}
 		}
 	}
-	
-	// Commit IF/ID only if not stalling; otherwise freeze previous IF/ID
 	if (!stall_if_id_) {
 		if_id_ = out;
 	}
 }
 
 void RV5SVM::stageID() {
-	// Handle control hazard flush or bubble propagation
+	//hazard flush or bubble propagation
 	if (flush_id_once_ || (if_id_.valid && if_id_.is_bubble)) {
-		// Insert bubble into ID/EX (stageIF will handle IF/ID flush if needed)
 		auto bubble_type = flush_id_once_ ? IDEX::BubbleType::Flush : 
 		                   (if_id_.bubble_type == IFID::BubbleType::Flush ? IDEX::BubbleType::Flush : IDEX::BubbleType::Stall);
 		insertBubble(id_ex_, bubble_type);
 		flush_id_once_ = false;
 		return;
 	}
-
-	// Hazard detection: compute stalls (Mode 3, 4, 5, 6+)
 	stall_if_id_ = false;
 	if (is_stall_mode() || is_forward_mode() || is_bp_mode()) {
 		if (stall_counter_ > 0) {
@@ -392,19 +375,12 @@ void RV5SVM::stageID() {
 	out.branch = control_.GetBranch();
 	out.alu_signal = control_.GetAluSignal(instr, control_.GetAluOp());
 	
-	// Mode 5/6/7: Resolve branches in ID stage (early resolution with forwarding)
-	// Note: HazardUnit already handles load-use stalls, so we can safely forward here
 	auto mode = vm_config::config.getPipelineMode();
-	if (is_bp_mode()) {  // This covers modes 5, 6, and 7
+	if (is_bp_mode()) {  
 		bool is_control_flow = (opcode == 0b1101111) || (opcode == 0b1100111) || (opcode == 0b1100011);
 		if (is_control_flow) {
-			// Create temp IDEX to use existing ForwardUnit
 			IDEX temp_idex = out;
-			
-			// Use ForwardUnit to compute forwarding decisions
 			const auto fwd = forward_.Compute(temp_idex, ex_mem_, mem_wb_);
-			
-			// Apply forwarding to get correct operand values
 			uint64_t rs1_val = out.rs1_val;
 			uint64_t rs2_val = out.rs2_val;
 			
@@ -434,18 +410,15 @@ void RV5SVM::stageID() {
 					break;
 			}
 			
-			// Compute branch decision with forwarded values
 			uint64_t alu_res = 0;
-			if (opcode == 0b1100011) { // Conditional branch
+			if (opcode == 0b1100011) {
 				auto [r, of] = alu_.execute(out.alu_signal, rs1_val, rs2_val);
 				alu_res = static_cast<uint64_t>(r);
 			}
 			
-			auto decision = resolveBranch(opcode, funct3, if_id_.pc, imm, 
-			                               rs1_val, rs2_val, alu_res);
+			auto decision = resolveBranch(opcode, funct3, if_id_.pc, imm, rs1_val, rs2_val, alu_res);
 
 			if (is_dynamic_bp_mode()) {
-				// Mode 6/7: compare with prediction and update predictor
 				bool pred_present = if_id_.has_prediction;
 				bool pred_taken = pred_present ? if_id_.predicted_taken : false;
 				uint64_t pred_target = pred_present ? if_id_.predicted_target : (if_id_.pc + 4);
@@ -455,8 +428,6 @@ void RV5SVM::stageID() {
 				} else if (decision.taken && pred_taken && (decision.target != pred_target)) {
 					mispred = true;
 				}
-
-				// Only flush and redirect PC on misprediction
 				if (mispred) {
 					if (decision.taken) {
 						program_counter_ = decision.target;
@@ -470,18 +441,15 @@ void RV5SVM::stageID() {
 					predictor_->update(if_id_.pc, true, decision.taken, decision.target);
 				}
 			} else {
-				// Mode 5: early resolve without predictor; simple flush on taken
 				if (decision.taken) {
 					program_counter_ = decision.target;
 					flush_if_once_ = true;
 				}
 			}
 			
-			out.branch_resolved = true; // Mark as resolved
+			out.branch_resolved = true;
 		}
 	}
-	
-	// Commit
 	id_ex_ = out;
 }
 
@@ -496,7 +464,7 @@ void RV5SVM::stageEX() {
 	if (is_forward_mode() || is_bp_mode()) {
 		const auto fwd = forward_.Compute(id_ex_, current_delta_.exmem, current_delta_.memwb);
 
-		// Resolve rs1
+		// rs1 forwarding
 		switch (fwd.selA) {
 			case ForwardSel::EX:
 				srcA = current_delta_.exmem.alu_result; 
@@ -509,7 +477,7 @@ void RV5SVM::stageEX() {
 				break;
 		}
 
-		// Resolve rs2 for ALU when alu_src==0
+		// rs2 forwarding
 		switch (fwd.selB) {
 			case ForwardSel::EX:
 				srcB_reg = current_delta_.exmem.alu_result;
@@ -522,7 +490,7 @@ void RV5SVM::stageEX() {
 				break;
 		}
 
-		// Store data forwarding value (rs2), carried into EX/MEM.rs2_val
+		// Store forwarding 
 		switch (fwd.storeSel) {
 			case ForwardSel::EX:
 				store_data = current_delta_.exmem.alu_result;
@@ -536,11 +504,9 @@ void RV5SVM::stageEX() {
 		}
 	}
 
-	// Final ALU operands
 	const uint64_t op1 = srcA;
 	const uint64_t op2 = id_ex_.alu_src ? static_cast<uint64_t>(id_ex_.imm) : srcB_reg;
 
-	// Compute result according to opcode
 	uint64_t res = 0;
 	bool overflow = false; (void)overflow;
 	switch (id_ex_.opcode) {
@@ -564,12 +530,10 @@ void RV5SVM::stageEX() {
 		}
 	}
 
-	// Branch decision (skip if already resolved in ID for mode 5+)
+	// Branch decision 
 	bool take = false;
 	uint64_t target = 0;
 	if (!id_ex_.branch_resolved) {
-		// Use resolveBranch helper for consistency
-		// resolveBranch(opcode, funct3, pc, imm, rs1_val, rs2_val, alu_result)
 		auto dec = resolveBranch(
 			id_ex_.opcode,
 			id_ex_.funct3,
@@ -585,25 +549,24 @@ void RV5SVM::stageEX() {
 
 	// Fill EX/MEM
 	out.valid = true;
-	out.is_bubble = id_ex_.is_bubble; // Propagate bubble flag
-	out.bubble_type = static_cast<EXMEM::BubbleType>(id_ex_.bubble_type); // Propagate bubble type
+	out.is_bubble = id_ex_.is_bubble;
+	out.bubble_type = static_cast<EXMEM::BubbleType>(id_ex_.bubble_type);
 	out.instr = id_ex_.instr;
 	out.pc = id_ex_.pc;
 	out.opcode = id_ex_.opcode;
 	out.funct3 = id_ex_.funct3;
 	out.rd = id_ex_.rd;
-	out.rs2_val = store_data; // forward store data if needed
+	out.rs2_val = store_data; 
 	out.mem_to_reg = id_ex_.mem_to_reg;
 	out.reg_write = id_ex_.reg_write;
 	out.mem_read = id_ex_.mem_read;
 	out.mem_write = id_ex_.mem_write;
 	out.alu_result = res;
 	out.branch_taken = take;
-	// Use target from resolveBranch if we computed it in EX; otherwise compute here for compatibility
+
 	if (!id_ex_.branch_resolved) {
 		out.branch_target = target;
 	} else {
-		// Branch was already resolved in ID, target should be in id_ex_ or recompute
 		if (id_ex_.opcode == 0b1100111) { // JALR target uses forwarded rs1
 			uint64_t jalr_target = (srcA + static_cast<uint64_t>(id_ex_.imm)) & ~static_cast<uint64_t>(1);
 			out.branch_target = jalr_target;
@@ -611,11 +574,10 @@ void RV5SVM::stageEX() {
 			out.branch_target = static_cast<uint64_t>(id_ex_.pc + id_ex_.imm);
 		}
 	}
-
-	// Apply flush logic only if branch was NOT already resolved in ID
+	
+	// if branch taken and not resolved in ID
 	if (!id_ex_.branch_resolved && out.branch_taken) {
-		program_counter_ = out.branch_target;
-		// Flush IF and ID stages on next cycle 
+		program_counter_ = out.branch_target; 
 		flush_if_once_ = true;
 		flush_id_once_ = true;
 	}
@@ -669,8 +631,8 @@ void RV5SVM::stageMEM() {
 	}
 
     out.valid = true;
-    out.is_bubble = ex_mem_.is_bubble; // Propagate bubble flag
-    out.bubble_type = static_cast<MEMWB::BubbleType>(ex_mem_.bubble_type); // Propagate bubble type
+    out.is_bubble = ex_mem_.is_bubble;
+    out.bubble_type = static_cast<MEMWB::BubbleType>(ex_mem_.bubble_type);
     out.instr = ex_mem_.instr;
     out.rd = ex_mem_.rd;
     out.mem_to_reg = ex_mem_.mem_to_reg;
@@ -689,7 +651,6 @@ void RV5SVM::stageWB() {
 		registers_.WriteGpr(mem_wb_.rd, value);
 		current_delta_.register_changes.push_back({mem_wb_.rd, 0, old_val, value});
 	}
-	// Count only non-bubble instructions as retired
 	if (!mem_wb_.is_bubble) {
 		instructions_retired_++;
 	}
@@ -705,7 +666,6 @@ void RV5SVM::Step() {
 	current_delta_.register_changes.clear();
 	current_delta_.memory_changes.clear();
 
-	// Lazy-init predictor if dynamic BP mode is enabled and predictor is not yet created
 	if (!predictor_ && is_dynamic_bp_mode()) {
 		auto mode = vm_config::config.getPipelineMode();
 		if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
@@ -733,27 +693,22 @@ void RV5SVM::Step() {
 	stageIF();
 
 	// Debug print: show all register changes logged for this cycle
-	if (!current_delta_.register_changes.empty()) {
-		//std::cout << "Step cycle=" << cycle_s_ << " Register changes: ";
-		for (const auto& change : current_delta_.register_changes) {
-			//std::cout << "x" << change.reg_index << "(" << change.old_value << "->" << change.new_value << ") ";
-		}
-		//std::cout << std::endl;
-	}
+	// if (!current_delta_.register_changes.empty()) {
+	// 	//std::cout << "Step cycle=" << cycle_s_ << " Register changes: ";
+	// 	for (const auto& change : current_delta_.register_changes) {
+	// 		//std::cout << "x" << change.reg_index << "(" << change.old_value << "->" << change.new_value << ") ";
+	// 	}
+	// 	//std::cout << std::endl;
+	// }
 
 	cycle_s_++;
 
 	current_delta_.new_pc = program_counter_;
-
-	// After all changes, push to undo stack and clear
 	undo_stack_.push(current_delta_);
 	while (redo_stack_.size() > 0) redo_stack_.pop();
 	current_delta_ = StepDelta5();
-	
-	// Display pipeline state after each step
 	PrintPipelineState();
 
-	// Dump predictor state each step for dynamic BP modes (6, 7, 8, and 9)
 	if (predictor_ && is_dynamic_bp_mode()) {
 		auto mode = vm_config::config.getPipelineMode();
 		if (mode == vm_config::PipelineMode::PIPE_DYN1_BP) {
@@ -771,8 +726,7 @@ void RV5SVM::Step() {
 
 void RV5SVM::Run() {
 	stop_requested_ = false;
-	
-	// Print initial pipeline state (cycle 0)
+	// cycle 0
 	PrintPipelineState();
 	
 	while (!stop_requested_) {
@@ -781,7 +735,6 @@ void RV5SVM::Run() {
 	}
 	std::cout << "VM_PROGRAM_END" << std::endl;
 	output_status_ = "VM_PROGRAM_END";
-	// Compute CPI/IPCs for proof of pipelining
 	if (instructions_retired_ > 0) {
 		cpi_ = static_cast<float>(cycle_s_) / static_cast<float>(instructions_retired_);
 		ipc_ = static_cast<float>(instructions_retired_) / static_cast<float>(cycle_s_ == 0 ? 1 : cycle_s_);
@@ -825,7 +778,6 @@ void RV5SVM::Undo() {
 			//std::cout << "UNDO: x" << change.reg_index << " restore=" << change.old_value << std::endl;
 			registers_.WriteGpr(change.reg_index, change.old_value);
 		}
-		// Add CSR/FPR if needed
 	}
     // Restore memory
     for (const auto& change : last.memory_changes) {
@@ -873,5 +825,4 @@ void RV5SVM::Redo() {
     std::cout << "VM_REDO_COMPLETED" << std::endl;
 }
 
-// Predictor implementation instantiated directly for Mode 6 (OneBitBTB)
 

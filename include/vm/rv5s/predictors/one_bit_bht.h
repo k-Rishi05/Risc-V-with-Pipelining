@@ -4,12 +4,6 @@
 #include <vector>
 #include <cstdint>
 #include <ostream>
-
-/**
- * @brief 1-bit BHT implementation
- * Each entry stores the last outcome (0=not-taken, 1=taken)
- * Prediction for next time = last outcome
- */
 class OneBitBHT : public BHT {
 public:
   explicit OneBitBHT(size_t entries = 128);

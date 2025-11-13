@@ -17,6 +17,6 @@ public:
   void debugDump(std::ostream& os) const override;
 
 private:
-  std::unique_ptr<PerceptronBHT> bht_;  // Perceptron-based direction predictor
-  std::unique_ptr<BTB> btb_;            // Target cache (reused infrastructure)
+  std::unique_ptr<PerceptronBHT> bht_;
+  std::unique_ptr<BTB> btb_;
 };

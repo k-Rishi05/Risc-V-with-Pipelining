@@ -33,7 +33,7 @@ enum class PipelineMode : uint8_t {
   PIPE_GSHARE_BP = 9       // Mode 9
 };
 
-// Branch resolution stage control (kept simple)
+// Branch resolution stage control 
 enum class BranchResolveStage : uint8_t {
   EX = 0,
   ID = 1

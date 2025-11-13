@@ -5,44 +5,26 @@
 #include <cmath>
 
 GshareBHT::GshareBHT(size_t entries, uint32_t history_length)
-  : history_length_(history_length),
-    pht_size_(1 << history_length),  // 2^history_length
-    history_mask_((1 << history_length) - 1) {  // Mask for h bits
-  
-  // Initialize PHT with 2^h entries
+  : history_length_(history_length),pht_size_(1 << history_length), 
+  history_mask_((1 << history_length) - 1) {  
   pht_.resize(pht_size_, TwoBitState::WEAKLY_NOT_TAKEN);
-  
-  // Initialize GHR to 0 (all not-taken history)
   ghr_ = 0;
 }
 
 bool GshareBHT::predict(uint64_t pc) {
-  // Calculate index using XOR hash
   size_t idx = index(pc);
-  
-  // Get prediction from 2-bit counter
   bool prediction = predictFromCounter(pht_[idx]);
-  
-  // Don't update GHR speculatively - wait for actual outcome
-  
   return prediction;
 }
 
 void GshareBHT::update(uint64_t pc, bool taken) {
-  // Calculate index using XOR hash
   size_t idx = index(pc);
-  
-  // Update 2-bit saturating counter
   updateCounter(pht_[idx], taken);
-  
-  // Update GHR with actual branch outcome
   updateGHR(taken);
 }
 
 void GshareBHT::updateCounter(TwoBitState& state, bool taken) {
-  // 2-bit saturating counter state machine (reuse logic from TwoBitBHT)
   if (taken) {
-    // Move toward strongly taken
     switch (state) {
       case TwoBitState::STRONGLY_NOT_TAKEN:
         state = TwoBitState::WEAKLY_NOT_TAKEN;
@@ -54,11 +36,9 @@ void GshareBHT::updateCounter(TwoBitState& state, bool taken) {
         state = TwoBitState::STRONGLY_TAKEN;
         break;
       case TwoBitState::STRONGLY_TAKEN:
-        // Already at maximum, stay
         break;
     }
   } else {
-    // Move toward strongly not-taken
     switch (state) {
       case TwoBitState::STRONGLY_TAKEN:
         state = TwoBitState::WEAKLY_TAKEN;
@@ -70,19 +50,15 @@ void GshareBHT::updateCounter(TwoBitState& state, bool taken) {
         state = TwoBitState::STRONGLY_NOT_TAKEN;
         break;
       case TwoBitState::STRONGLY_NOT_TAKEN:
-        // Already at minimum, stay
         break;
     }
   }
 }
 
 void GshareBHT::reset() {
-  // Reset all PHT entries to weakly not-taken
   for (auto& entry : pht_) {
     entry = TwoBitState::WEAKLY_NOT_TAKEN;
   }
-  
-  // Clear GHR
   ghr_ = 0;
 }
 
