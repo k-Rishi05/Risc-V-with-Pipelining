@@ -33,14 +33,9 @@ enum class PipelineMode : uint8_t {
   PIPE_GSHARE_BP = 9       // Mode 9
 };
 
-// Branch resolution stage control 
-enum class BranchResolveStage : uint8_t {
-  EX = 0,
-  ID = 1
-};
 
 struct VmConfig {
-  PipelineMode pipeline_mode = PipelineMode::PIPE_NO_HAZ; // default to Mode 2 for multi-stage
+  PipelineMode pipeline_mode = PipelineMode::PIPE_NO_HAZ; // default to Mode 2 
   uint64_t run_step_delay = 300;
   uint64_t memory_size = 0xffffffffffffffff; // 64-bit address space
   uint64_t memory_block_size = 1024; // 1 KB blocks
@@ -54,75 +49,61 @@ struct VmConfig {
   bool f_extension_enabled = true;
   bool d_extension_enabled = true;
 
-  // Feature flags derived from pipeline_mode; can be overridden via config
   bool hazard_detection_enabled = false;
   bool forwarding_enabled = false;
   enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2, TwoBit=3, Perceptron=4, Gshare=5 };
   PredictorKind predictor = PredictorKind::None;
-  BranchResolveStage branch_resolve_stage = BranchResolveStage::EX; // optional tuning
-  
-  // Branch predictor configuration
-  uint32_t gshare_history_length = 4; // Number of bits in GHR for Gshare (default: 8, range: 1-16)
-  uint32_t perceptron_history_length = 8; // Number of bits in GHR for Perceptron (default: 28)
 
-  // VM type removed; selection is based solely on pipeline_mode
+  uint32_t gshare_history_length = 10;
+  uint32_t perceptron_history_length = 10;
+
   void setPipelineMode(PipelineMode mode) {
     pipeline_mode = mode;
-    // Set defaults for feature flags based on mode
     switch (mode) {
       case PipelineMode::SINGLE_CYCLE:
         hazard_detection_enabled = false;
         forwarding_enabled = false;
         predictor = PredictorKind::None;
-        branch_resolve_stage = BranchResolveStage::EX;
         break;
       case PipelineMode::PIPE_NO_HAZ:
         hazard_detection_enabled = false;
         forwarding_enabled = false;
         predictor = PredictorKind::None;
-        branch_resolve_stage = BranchResolveStage::EX;
         break;
       case PipelineMode::PIPE_STALL:
         hazard_detection_enabled = true;
         forwarding_enabled = false;
         predictor = PredictorKind::None;
-        branch_resolve_stage = BranchResolveStage::EX;
         break;
       case PipelineMode::PIPE_FWD:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::None;
-        branch_resolve_stage = BranchResolveStage::EX;
         break;
       case PipelineMode::PIPE_STATIC_BP:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::Static;
-        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
       case PipelineMode::PIPE_DYN1_BP:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::OneBit;
-        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
       case PipelineMode::PIPE_DYN2_BP:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::TwoBit;
-        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
       case PipelineMode::PIPE_PERCEPTRON_BP:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::Perceptron;
-        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
       case PipelineMode::PIPE_GSHARE_BP:
         hazard_detection_enabled = true;
         forwarding_enabled = true;
         predictor = PredictorKind::Gshare;
-        branch_resolve_stage = BranchResolveStage::EX; // can be changed to ID if implemented
         break;
     }
   }
@@ -226,8 +207,6 @@ struct VmConfig {
   }
   uint32_t getPerceptronHistoryLength() const { return perceptron_history_length; }
 
-  void setBranchResolveStage(BranchResolveStage s) { branch_resolve_stage = s; }
-  BranchResolveStage getBranchResolveStage() const { return branch_resolve_stage; }
 
   void modifyConfig(const std::string &section, const std::string &key, const std::string &value) {
     if (section == "Execution" || section == "e") {
@@ -260,10 +239,6 @@ struct VmConfig {
         else if (value == "static") setPredictor(PredictorKind::Static);
         else if (value == "onebit") setPredictor(PredictorKind::OneBit);
         else throw std::invalid_argument("Unknown predictor: " + value);
-      } else if (key == "branch_resolve_stage") {
-        if (value == "EX" || value == "ex") setBranchResolveStage(BranchResolveStage::EX);
-        else if (value == "ID" || value == "id") setBranchResolveStage(BranchResolveStage::ID);
-        else throw std::invalid_argument("Unknown branch_resolve_stage: " + value);
       } else if (key == "run_step_delay") {
         setRunStepDelay(std::stoull(value));
       } else if (key == "instruction_execution_limit") {
