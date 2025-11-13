@@ -7,8 +7,6 @@
 #include <cstdint>
 #include <ostream>
 
-// 2-bit saturating counter predictor with BTB
-// Combines TwoBitBHT (direction prediction) and DirectMappedBTB (target caching)
 class TwoBitBTB : public Predictor {
 public:
   explicit TwoBitBTB(size_t entries);
@@ -19,6 +17,6 @@ public:
   void debugDump(std::ostream& os) const override;
 
 private:
-  std::unique_ptr<BHT> bht_;  // 2-bit direction predictor
-  std::unique_ptr<BTB> btb_;  // Target cache (reused from OneBitBTB)
+  std::unique_ptr<BHT> bht_; 
+  std::unique_ptr<BTB> btb_;  
 };

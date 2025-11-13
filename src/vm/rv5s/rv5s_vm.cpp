@@ -444,6 +444,7 @@ void RV5SVM::stageID() {
 				if (decision.taken) {
 					program_counter_ = decision.target;
 					flush_if_once_ = true;
+					mispredictions_++; 
 				}
 			}
 			
@@ -580,6 +581,7 @@ void RV5SVM::stageEX() {
 		program_counter_ = out.branch_target; 
 		flush_if_once_ = true;
 		flush_id_once_ = true;
+		mispredictions_++;
 	}
 
 	ex_mem_ = out;
@@ -742,7 +744,8 @@ void RV5SVM::Run() {
 	std::cout << "VM_STATS cycles=" << cycle_s_
 			  << " retired=" << instructions_retired_
 			  << " cpi=" << cpi_
-			  << " ipc=" << ipc_ << std::endl;
+			  << " ipc=" << ipc_
+			  << " mispred=" << mispredictions_ << std::endl;
 	// Assume ideal 5x higher clock for 5-stage pipeline: period_units = 1
 	//unsigned int period_units = 1; // relative time unit for pipeline
 	//unsigned long long time_units = static_cast<unsigned long long>(cycle_s_) * period_units;

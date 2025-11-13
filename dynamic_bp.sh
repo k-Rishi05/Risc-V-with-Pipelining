@@ -26,15 +26,35 @@ if [ ! -f "$ASM_FILE" ]; then
     exit 1
 fi
 
-# Check if build directory and executable exist
-if [ ! -f "build/vm" ]; then
-    echo "Error: VM executable not found. Please build the project first."
-    echo "Run: cd build && cmake .. && make"
+BUILD_DIR="build"
+VM_STATE_DIR="$BUILD_DIR/vm_state"
+
+# Build the project if needed
+echo "Building RISC-V VM..."
+if [ ! -d "$BUILD_DIR" ]; then
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+    cmake .. > /dev/null 2>&1
+    cd ..
+fi
+
+cd "$BUILD_DIR"
+make -j4 > /dev/null 2>&1
+BUILD_STATUS=$?
+cd ..
+
+if [ $BUILD_STATUS -ne 0 ]; then
+    echo "Error: Build failed. Please check your code."
     exit 1
 fi
 
-BUILD_DIR="build"
-VM_STATE_DIR="$BUILD_DIR/vm_state"
+if [ ! -f "build/vm" ]; then
+    echo "Error: VM executable not found after build."
+    exit 1
+fi
+
+echo "✓ Build successful!"
+echo ""
 
 # Terminal colors for better readability
 RED='\033[0;31m'
@@ -163,9 +183,9 @@ for i in "${!MODES[@]}"; do
 done
 
 # Print results table
-echo -e "\n${BOLD}╔═══════╦═══════════════════════════════════╦═══════════╦══════════╦═══════╦═══════╦═══════════════╗${NC}"
-echo -e "${BOLD}║ MODE  ║ PREDICTOR                         ║   CYCLES  ║   INSTR  ║  CPI  ║  IPC  ║ MISPREDICTS   ║${NC}"
-echo -e "${BOLD}╠═══════╬═══════════════════════════════════╬═══════════╬══════════╬═══════╬═══════╬═══════════════╣${NC}"
+echo -e "\n${BOLD}════════════════════════════════════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}MODE  PREDICTOR                      CYCLES  INSTR   CPI    IPC      MISPRED${NC}"
+echo -e "${BOLD}────────────────────────────────────────────────────────────────────────────────${NC}"
 
 for i in "${!MODES[@]}"; do
     mode_num="${MODES[$i]}"
@@ -184,12 +204,15 @@ for i in "${!MODES[@]}"; do
         color=$RED
     fi
     
-    # Print row with color
-    printf "${BOLD}║${NC} ${BLUE}%-5s${NC} ║ %-33s ║ ${color}%9s${NC} ║ %8s ║ ${color}%5s${NC} ║ %5s ║ ${MAGENTA}%13s${NC} ║\n" \
-        "$mode_num" "$mode_name" "$cycles" "$instructions" "$cpi" "$ipc" "$mispredictions"
+    # Format IPC to 2 decimal places
+    ipc_formatted=$(printf "%.2f" "$ipc")
+    
+    # Print row with color - cleaner formatting
+    printf "${BLUE}%-4s${NC}  %-30s  ${color}%6s${NC}  %6s  ${color}%5s${NC}  %6s   ${MAGENTA}%7s${NC}\n" \
+        "$mode_num" "$mode_name" "$cycles" "$instructions" "$cpi" "$ipc_formatted" "$mispredictions"
 done
 
-echo -e "${BOLD}╚═══════╩═══════════════════════════════════╩═══════════╩══════════╩═══════╩═══════╩═══════════════╝${NC}\n"
+echo -e "${BOLD}════════════════════════════════════════════════════════════════════════════════${NC}\n"
 
 # Find best performing mode (lowest CPI)
 best_mode=""
