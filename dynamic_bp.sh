@@ -38,6 +38,11 @@ if [ ! -d "$BUILD_DIR" ]; then
     cd ..
 fi
 
+# Create vm_state directory if it doesn't exist
+if [ ! -d "$VM_STATE_DIR" ]; then
+    mkdir -p "$VM_STATE_DIR"
+fi
+
 cd "$BUILD_DIR"
 make -j4 > /dev/null 2>&1
 BUILD_STATUS=$?
