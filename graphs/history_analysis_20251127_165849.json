@@ -1,0 +1,91 @@
+{
+  "perceptron": [
+    {
+      "history_size": 1,
+      "cycles": 8061,
+      "instructions": 7548,
+      "cpi": 1.06797,
+      "mispredictions": 509
+    },
+    {
+      "history_size": 2,
+      "cycles": 8032,
+      "instructions": 7548,
+      "cpi": 1.06412,
+      "mispredictions": 480
+    },
+    {
+      "history_size": 4,
+      "cycles": 8039,
+      "instructions": 7548,
+      "cpi": 1.06505,
+      "mispredictions": 487
+    },
+    {
+      "history_size": 8,
+      "cycles": 8012,
+      "instructions": 7548,
+      "cpi": 1.06147,
+      "mispredictions": 460
+    },
+    {
+      "history_size": 16,
+      "cycles": 8045,
+      "instructions": 7548,
+      "cpi": 1.06585,
+      "mispredictions": 493
+    },
+    {
+      "history_size": 32,
+      "cycles": 8074,
+      "instructions": 7548,
+      "cpi": 1.06969,
+      "mispredictions": 522
+    }
+  ],
+  "gshare": [
+    {
+      "history_size": 1,
+      "cycles": 8981,
+      "instructions": 7548,
+      "cpi": 1.18985,
+      "mispredictions": 1429
+    },
+    {
+      "history_size": 2,
+      "cycles": 8953,
+      "instructions": 7548,
+      "cpi": 1.18614,
+      "mispredictions": 1401
+    },
+    {
+      "history_size": 4,
+      "cycles": 8176,
+      "instructions": 7548,
+      "cpi": 1.0832,
+      "mispredictions": 624
+    },
+    {
+      "history_size": 8,
+      "cycles": 8049,
+      "instructions": 7548,
+      "cpi": 1.06638,
+      "mispredictions": 497
+    },
+    {
+      "history_size": 16,
+      "cycles": 8187,
+      "instructions": 7548,
+      "cpi": 1.08466,
+      "mispredictions": 635
+    },
+    {
+      "history_size": 32,
+      "cycles": 9351,
+      "instructions": 7548,
+      "cpi": 1.23887,
+      "mispredictions": 1799
+    }
+  ],
+  "test_program": "examples/binary_search.s"
+}

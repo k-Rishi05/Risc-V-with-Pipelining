@@ -1,0 +1,91 @@
+{
+  "perceptron": [
+    {
+      "history_size": 1,
+      "cycles": 34515,
+      "instructions": 34084,
+      "cpi": 1.01265,
+      "mispredictions": 427
+    },
+    {
+      "history_size": 2,
+      "cycles": 34518,
+      "instructions": 34084,
+      "cpi": 1.01273,
+      "mispredictions": 430
+    },
+    {
+      "history_size": 4,
+      "cycles": 34514,
+      "instructions": 34084,
+      "cpi": 1.01262,
+      "mispredictions": 426
+    },
+    {
+      "history_size": 8,
+      "cycles": 34512,
+      "instructions": 34084,
+      "cpi": 1.01256,
+      "mispredictions": 424
+    },
+    {
+      "history_size": 16,
+      "cycles": 34512,
+      "instructions": 34084,
+      "cpi": 1.01256,
+      "mispredictions": 424
+    },
+    {
+      "history_size": 32,
+      "cycles": 34512,
+      "instructions": 34084,
+      "cpi": 1.01256,
+      "mispredictions": 424
+    }
+  ],
+  "gshare": [
+    {
+      "history_size": 1,
+      "cycles": 49307,
+      "instructions": 34084,
+      "cpi": 1.44663,
+      "mispredictions": 15219
+    },
+    {
+      "history_size": 2,
+      "cycles": 35308,
+      "instructions": 34084,
+      "cpi": 1.03591,
+      "mispredictions": 1220
+    },
+    {
+      "history_size": 4,
+      "cycles": 35310,
+      "instructions": 34084,
+      "cpi": 1.03597,
+      "mispredictions": 1222
+    },
+    {
+      "history_size": 8,
+      "cycles": 34558,
+      "instructions": 34084,
+      "cpi": 1.01391,
+      "mispredictions": 470
+    },
+    {
+      "history_size": 16,
+      "cycles": 34570,
+      "instructions": 34084,
+      "cpi": 1.01426,
+      "mispredictions": 482
+    },
+    {
+      "history_size": 32,
+      "cycles": 42087,
+      "instructions": 34084,
+      "cpi": 1.2348,
+      "mispredictions": 7999
+    }
+  ],
+  "test_program": "examples/matrix_multiplication.s"
+}

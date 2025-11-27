@@ -54,8 +54,8 @@ struct VmConfig {
   enum class PredictorKind : uint8_t { None=0, Static=1, OneBit=2, TwoBit=3, Perceptron=4, Gshare=5 };
   PredictorKind predictor = PredictorKind::None;
 
-  uint32_t gshare_history_length = 10;
-  uint32_t perceptron_history_length = 10;
+  uint32_t gshare_history_length = 8;
+  uint32_t perceptron_history_length = 8;
 
   void setPipelineMode(PipelineMode mode) {
     pipeline_mode = mode;
